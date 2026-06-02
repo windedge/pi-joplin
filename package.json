@@ -4,7 +4,9 @@
   "description": "A pi extension providing read-only access to Joplin notes",
   "main": "index.js",
   "scripts": {
-    "test": "jest"
+    "test": "jest",
+    "test:unit": "jest --testPathIgnorePatterns=e2e.test.ts",
+    "test:e2e": "jest e2e.test.ts --passWithNoTests --coverage=false"
   },
   "keywords": [],
   "author": "",

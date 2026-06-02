@@ -18,10 +18,23 @@ Thank you for your interest in contributing to `pi-joplin`!
 
 We use `jest` for our test suite, with a strict requirement of >=80% test coverage. 
 
-To run the unit tests and view coverage:
+To run the full test suite (both unit tests and E2E tests) and view coverage:
 ```bash
 npm run test
 ```
+
+To run only the unit tests (which execute instantly and enforce the 80% coverage check):
+```bash
+npm run test:unit
+```
+
+To run only the End-to-End (E2E) tests:
+```bash
+npm run test:e2e
+```
+
+The E2E tests utilize the `--profile` flag of the Joplin CLI to spin up an isolated temporary database. This guarantees that your local Joplin installation and data are unaffected during the test run.
+
 
 Please ensure that all tests pass and coverage requirements are met before submitting a pull request.
 
