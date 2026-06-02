@@ -22,7 +22,7 @@ describe("Extension", () => {
     expect(registeredTools).toContain("joplin_list_notebooks");
     expect(registeredTools).toContain("joplin_list_notes");
     expect(registeredTools).toContain("joplin_read_note");
-    expect(registeredTools).toContain("joplin_list_notes_by_tag");
+    expect(registeredTools).toContain("joplin_get_note_metadata");
 
     // Call execute on joplin_list_notebooks to get branch coverage
     const listNotebooksTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_list_notebooks")[0];
@@ -35,14 +35,19 @@ describe("Extension", () => {
     (JoplinClient.prototype.listNotes as jest.Mock).mockResolvedValue([{ id: "1" }]);
     await listNotesTool.execute("id", { notebook: "nb" });
 
+    (JoplinClient.prototype.listNotesByTag as jest.Mock).mockResolvedValue([{ id: "1" }]);
+    await listNotesTool.execute("id", { tag: "tag" });
+
+    await expect(listNotesTool.execute("id", { notebook: "nb", tag: "tag" })).rejects.toThrow("Filtering by both notebook and tag simultaneously is not supported in a single call.");
+
     // Call execute on joplin_read_note
     const readNoteTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_read_note")[0];
     (JoplinClient.prototype.readNote as jest.Mock).mockResolvedValue("content");
     await readNoteTool.execute("id", { note: "note" });
 
-    // Call execute on joplin_list_notes_by_tag
-    const listTagsTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_list_notes_by_tag")[0];
-    (JoplinClient.prototype.listNotesByTag as jest.Mock).mockResolvedValue([{ id: "1" }]);
-    await listTagsTool.execute("id", { tag: "tag" });
+    // Call execute on joplin_get_note_metadata
+    const getMetadataTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_get_note_metadata")[0];
+    (JoplinClient.prototype.getNoteMetadata as jest.Mock).mockResolvedValue({ id: "1" });
+    await getMetadataTool.execute("id", { note: "note" });
   });
 });

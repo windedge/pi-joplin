@@ -4,9 +4,9 @@ A pi extension that provides read-only access to Joplin notes.
 
 ## Features
 - List all notebooks
-- List notes (all notes or filtered by notebook)
+- List notes (all notes or filtered by notebook/tag)
 - Read individual notes
-- List notes by a specific tag
+- Get metadata for a specific note (e.g. parent_id, is_todo, created_time, tags, etc.)
 
 ## Usage
 

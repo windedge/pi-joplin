@@ -127,4 +127,43 @@ describe("JoplinClient", () => {
       expect(fsPromises.unlink).toHaveBeenCalled();
     });
   });
+
+  describe("getNoteMetadata", () => {
+    it("parses metadata from verbose cat output and appends tags", async () => {
+      const output = `Title\n\nBody of the note\n\n\nid: 12345\nparent_id: abcde\ncreated_time: 2026-06-02T07:51:22.770Z\n\n`;
+      let callCount = 0;
+      mockedExec.mockImplementation((cmd: string, cb: any) => {
+        if (callCount === 0) {
+          callCount++;
+          cb(null, { stdout: output });
+        } else {
+          cb(null, { stdout: "tag1\ntag2\n" });
+        }
+      });
+      
+      const metadata = await client.getNoteMetadata("12345");
+      expect(metadata).toEqual({
+        id: "12345",
+        parent_id: "abcde",
+        created_time: "2026-06-02T07:51:22.770Z",
+        tags: ["tag1", "tag2"]
+      });
+    });
+
+    it("handles output with no metadata gracefully", async () => {
+      const output = `Just some text\nwith no metadata blocks`;
+      let callCount = 0;
+      mockedExec.mockImplementation((cmd: string, cb: any) => {
+        if (callCount === 0) {
+          callCount++;
+          cb(null, { stdout: output });
+        } else {
+          cb(null, { stdout: "" });
+        }
+      });
+      
+      const metadata = await client.getNoteMetadata("12345");
+      expect(metadata).toEqual({ tags: [] });
+    });
+  });
 });

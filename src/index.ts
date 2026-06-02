@@ -23,12 +23,22 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "joplin_list_notes",
     label: "List Notes",
-    description: "List notes. If notebook is provided, lists notes in that notebook. Otherwise lists all notes.",
+    description: "List notes. Can optionally filter by notebook OR tag. Leave empty for all notes.",
     parameters: Type.Object({
-      notebook: Type.Optional(Type.String({ description: "Notebook ID or name. Leave empty for all notes." })),
+      notebook: Type.Optional(Type.String({ description: "Notebook ID or name to filter by." })),
+      tag: Type.Optional(Type.String({ description: "Tag name to filter by." })),
     }),
     async execute(_id, params) {
-      const notes = await client.listNotes(params.notebook);
+      if (params.notebook && params.tag) {
+        throw new Error("Filtering by both notebook and tag simultaneously is not supported in a single call.");
+      }
+
+      let notes;
+      if (params.tag) {
+        notes = await client.listNotesByTag(params.tag);
+      } else {
+        notes = await client.listNotes(params.notebook);
+      }
       
       const output = JSON.stringify(notes, null, 2);
       const truncation = truncateHead(output, {
@@ -38,7 +48,7 @@ export default function (pi: ExtensionAPI) {
 
       let text = truncation.content;
       if (truncation.truncated) {
-        text += `\n\n[Output truncated: ${truncation.outputLines} of ${truncation.totalLines} lines. Query specific notebooks if needed.]`;
+        text += `\n\n[Output truncated: ${truncation.outputLines} of ${truncation.totalLines} lines. Query specific notebooks or tags if needed.]`;
       }
 
       return {
@@ -76,29 +86,17 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerTool({
-    name: "joplin_list_notes_by_tag",
-    label: "List Notes by Tag",
-    description: "List all notes that have a specific tag",
+    name: "joplin_get_note_metadata",
+    label: "Get Note Metadata",
+    description: "Get metadata for a specific note (e.g. parent_id, created_time, is_todo, etc.)",
     parameters: Type.Object({
-      tag: Type.String({ description: "Tag name" }),
+      note: Type.String({ description: "Note ID or title" }),
     }),
     async execute(_id, params) {
-      const notes = await client.listNotesByTag(params.tag);
-      const output = JSON.stringify(notes, null, 2);
-      
-      const truncation = truncateHead(output, {
-        maxLines: DEFAULT_MAX_LINES,
-        maxBytes: DEFAULT_MAX_BYTES,
-      });
-
-      let text = truncation.content;
-      if (truncation.truncated) {
-        text += `\n\n[Output truncated: ${truncation.outputLines} of ${truncation.totalLines} lines.]`;
-      }
-
+      const metadata = await client.getNoteMetadata(params.note);
       return {
-        content: [{ type: "text", text }],
-        details: { count: notes.length },
+        content: [{ type: "text", text: JSON.stringify(metadata, null, 2) }],
+        details: { metadata },
       };
     },
   });

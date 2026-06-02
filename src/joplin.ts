@@ -83,4 +83,39 @@ export class JoplinClient {
       };
     }).filter(note => note.id && note.title);
   }
+
+  async getNoteTags(note: string): Promise<string[]> {
+    const stdout = await this.runJoplin(["tag", "notetags", note]);
+    return stdout.split("\n").map(t => t.trim()).filter(t => t.length > 0);
+  }
+
+  async getNoteMetadata(note: string): Promise<Record<string, any>> {
+    const stdout = await this.runJoplin(["cat", note, "-v"]);
+    const lines = stdout.split("\n");
+    const metadata: Record<string, any> = {};
+    
+    // Parse metadata from the bottom up until the first blank line
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim();
+      if (line === "") {
+        if (Object.keys(metadata).length > 0) {
+          // We've found the empty line separating properties from the body
+          break;
+        } else {
+          // Trailing blank lines at the very end of output, skip them
+          continue;
+        }
+      }
+      const colonIndex = line.indexOf(":");
+      if (colonIndex >= 0) {
+        const key = line.substring(0, colonIndex).trim();
+        const value = line.substring(colonIndex + 1).trim();
+        metadata[key] = value;
+      }
+    }
+    
+    metadata.tags = await this.getNoteTags(note);
+    
+    return metadata;
+  }
 }
