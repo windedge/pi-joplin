@@ -4,7 +4,7 @@ import { JoplinClient } from "./joplin";
 import { truncateHead, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
-  const client = new JoplinClient();
+  const client = new JoplinClient(process.env.JOPLIN_PROFILE_PATH);
 
   pi.registerTool({
     name: "joplin_list_notebooks",
@@ -16,6 +16,32 @@ export default function (pi: ExtensionAPI) {
       return {
         content: [{ type: "text", text: JSON.stringify(notebooks, null, 2) }],
         details: { count: notebooks.length },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "joplin_list_tags",
+    label: "List Tags",
+    description: "List all tags in Joplin",
+    parameters: Type.Object({}),
+    async execute() {
+      const tags = await client.listTags();
+      
+      const output = JSON.stringify(tags, null, 2);
+      const truncation = truncateHead(output, {
+        maxLines: DEFAULT_MAX_LINES,
+        maxBytes: DEFAULT_MAX_BYTES,
+      });
+
+      let text = truncation.content;
+      if (truncation.truncated) {
+        text += `\n\n[Output truncated: ${truncation.outputLines} of ${truncation.totalLines} lines.]`;
+      }
+
+      return {
+        content: [{ type: "text", text }],
+        details: { count: tags.length },
       };
     },
   });
