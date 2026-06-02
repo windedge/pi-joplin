@@ -1,0 +1,26 @@
+{
+  "name": "pi-joplin",
+  "version": "1.0.0",
+  "description": "A pi extension providing read-only access to Joplin notes",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.78.0",
+    "@earendil-works/pi-coding-agent": "^0.78.0",
+    "joplin": "^3.6.2",
+    "joplin-api": "^1.0.0",
+    "typebox": "^1.1.39"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.9.1",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.11",
+    "typescript": "^6.0.3"
+  }
+}
