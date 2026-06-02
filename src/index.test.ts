@@ -38,7 +38,13 @@ describe("Extension", () => {
     (JoplinClient.prototype.listNotesByTag as jest.Mock).mockResolvedValue([{ id: "1" }]);
     await listNotesTool.execute("id", { tag: "tag" });
 
-    await expect(listNotesTool.execute("id", { notebook: "nb", tag: "tag" })).rejects.toThrow("Filtering by both notebook and tag simultaneously is not supported in a single call.");
+    // Test intersection logic
+    (JoplinClient.prototype.listNotes as jest.Mock).mockResolvedValue([{ id: "1", title: "Shared" }, { id: "2", title: "Notebook Only" }]);
+    (JoplinClient.prototype.listNotesByTag as jest.Mock).mockResolvedValue([{ id: "1", title: "Shared" }, { id: "3", title: "Tag Only" }]);
+    
+    const intersectionResult = await listNotesTool.execute("id", { notebook: "nb", tag: "tag" });
+    expect(intersectionResult.details.count).toBe(1);
+    expect(intersectionResult.content[0].text).toContain("mock content");
 
     // Call execute on joplin_read_note
     const readNoteTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_read_note")[0];

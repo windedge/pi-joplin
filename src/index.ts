@@ -23,18 +23,24 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "joplin_list_notes",
     label: "List Notes",
-    description: "List notes. Can optionally filter by notebook OR tag. Leave empty for all notes.",
+    description: "List notes. Can filter by notebook, tag, or both simultaneously. Leave empty for all notes.",
     parameters: Type.Object({
       notebook: Type.Optional(Type.String({ description: "Notebook ID or name to filter by." })),
       tag: Type.Optional(Type.String({ description: "Tag name to filter by." })),
     }),
     async execute(_id, params) {
-      if (params.notebook && params.tag) {
-        throw new Error("Filtering by both notebook and tag simultaneously is not supported in a single call.");
-      }
-
       let notes;
-      if (params.tag) {
+      
+      if (params.notebook && params.tag) {
+        // Since Joplin CLI doesn't support intersecting both natively in a single command,
+        // we fetch both and intersect them in memory by ID.
+        const [byNotebook, byTag] = await Promise.all([
+          client.listNotes(params.notebook),
+          client.listNotesByTag(params.tag)
+        ]);
+        const tagNoteIds = new Set(byTag.map(n => n.id));
+        notes = byNotebook.filter(n => tagNoteIds.has(n.id));
+      } else if (params.tag) {
         notes = await client.listNotesByTag(params.tag);
       } else {
         notes = await client.listNotes(params.notebook);
