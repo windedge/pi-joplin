@@ -4,17 +4,32 @@ import * as path from "path";
 import * as fsPromises from "fs/promises";
 import { exec } from "child_process";
 import { promisify } from "util";
+import * as net from "net";
 
 const execAsync = promisify(exec);
+
+async function getAvailablePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.on("error", reject);
+    srv.listen(0, () => {
+      const port = (srv.address() as net.AddressInfo).port;
+      srv.close(() => resolve(port));
+    });
+  });
+}
 
 describe("JoplinClient E2E", () => {
   let profilePath: string;
   let client: JoplinClient;
+  let testPort: number;
 
   beforeAll(async () => {
+    testPort = await getAvailablePort();
+
     // Create a temporary profile directory
     profilePath = await fsPromises.mkdtemp(path.join(os.tmpdir(), "joplin-e2e-"));
-    client = new JoplinClient(profilePath);
+    client = new JoplinClient(profilePath, testPort);
 
     // Setup the joplin environment
     const joplinBin = require.resolve("joplin/main.js");
@@ -28,19 +43,24 @@ describe("JoplinClient E2E", () => {
     // Switch to the notebook to create notes inside it
     const batchFile = path.join(profilePath, "setup.txt");
     await fsPromises.writeFile(batchFile, [
+      `config api.port ${testPort}`,
       `use "E2E Notebook"`,
       `mknote "E2E Note 1"`,
       `mknote "E2E Note 2"`,
-      `tag add e2etag "E2E Note 1"`
+      `tag add e2etag "E2E Note 1"`,
+      `config api.token test-e2e-token`
     ].join("\n"));
     
     await run(`batch "${batchFile}"`);
     
     // Add some content to E2E Note 1
     await run(`set "E2E Note 1" body "Hello E2E"`);
-  });
+
+    await client.init();
+  }, 15000);
 
   afterAll(async () => {
+    await client.close();
     // Cleanup the profile directory
     await fsPromises.rm(profilePath, { recursive: true, force: true });
   });
@@ -58,6 +78,12 @@ describe("JoplinClient E2E", () => {
     expect(titles).toEqual(["E2E Note 1", "E2E Note 2"]);
   });
 
+  it("lists all tags", async () => {
+    const tags = await client.listTags();
+    expect(tags.length).toBe(1);
+    expect(tags[0].title).toBe("e2etag");
+  });
+
   it("lists notes by tag", async () => {
     const notes = await client.listNotesByTag("e2etag");
     expect(notes.length).toBe(1);
@@ -71,7 +97,7 @@ describe("JoplinClient E2E", () => {
 
   it("gets note metadata with tags", async () => {
     const metadata = await client.getNoteMetadata("E2E Note 1");
-    expect(metadata.title).toBeUndefined(); // verbose cat returns properties
+    expect(metadata.title).toBe("E2E Note 1");
     expect(metadata.id).toBeDefined();
     expect(metadata.parent_id).toBeDefined();
     expect(metadata.tags).toEqual(["e2etag"]);

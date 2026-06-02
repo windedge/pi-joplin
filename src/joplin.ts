@@ -1,124 +1,226 @@
-import { exec } from "child_process";
+import { exec, spawn, ChildProcess } from "child_process";
 import { promisify } from "util";
-import { writeFile, unlink } from "fs/promises";
+import { readFile } from "fs/promises";
 import * as path from "path";
 import * as os from "os";
 
 const execAsync = promisify(exec);
 
 export class JoplinClient {
-  constructor(private profilePath?: string) {}
+  private apiToken?: string;
+  private port: number = 41184; // Default desktop port
+  private serverProcess?: ChildProcess;
 
-  private async runJoplin(args: string[]): Promise<string> {
-    const joplinBin = require.resolve("joplin/main.js");
-    const cmdArgs = args.map(a => `"${a.replace(/"/g, '\\"')}"`).join(" ");
-    const profileArg = this.profilePath ? `--profile "${this.profilePath}" ` : "";
-    const { stdout } = await execAsync(`"${process.execPath}" "${joplinBin}" ${profileArg}${cmdArgs}`);
-    return stdout;
+  constructor(private profilePath?: string, private forceHeadlessPort?: number) {
+    if (forceHeadlessPort) {
+      this.port = forceHeadlessPort;
+    }
   }
 
-  private async runJoplinBatch(commands: string[]): Promise<string> {
-    const joplinBin = require.resolve("joplin/main.js");
-    const batchFile = path.join(os.tmpdir(), `joplin-batch-${Date.now()}-${Math.random().toString(36).substring(7)}.txt`);
-    await writeFile(batchFile, commands.join("\n"));
-    try {
-      const profileArg = this.profilePath ? `--profile "${this.profilePath}" ` : "";
-      const { stdout } = await execAsync(`"${process.execPath}" "${joplinBin}" ${profileArg}batch "${batchFile}"`);
-      return stdout;
-    } finally {
-      await unlink(batchFile).catch(() => {});
+  /**
+   * Initializes the client by discovering the API token and ensuring a server is available.
+   */
+  async init(): Promise<void> {
+    // 1. Auto-discover the API token
+    this.apiToken = await this.discoverApiToken();
+    if (!this.apiToken) {
+      throw new Error("Could not find Joplin api.token in settings.json. Have you enabled the Web Clipper?");
     }
+
+    // 2. Check if a server is already running (skip if forcing a specific headless port)
+    if (!this.forceHeadlessPort) {
+      const isRunning = await this.ping(41184) || await this.ping(27583);
+      if (isRunning) {
+        // Desktop app or another server is already running, we're good to go!
+        return;
+      }
+    }
+
+    // 3. Fallback to starting a headless server if not running
+    await this.startHeadlessServer();
+  }
+
+  /**
+   * Cleans up any managed resources (like the headless server)
+   */
+  async close(): Promise<void> {
+    if (this.serverProcess) {
+      this.serverProcess.kill("SIGTERM");
+      this.serverProcess = undefined;
+    }
+  }
+
+  private async discoverApiToken(): Promise<string | undefined> {
+    const searchPaths = [
+      this.profilePath ? path.join(this.profilePath, "settings.json") : undefined,
+      path.join(os.homedir(), ".config", "joplin-desktop", "settings.json"),
+      path.join(os.homedir(), ".config", "joplin", "settings.json")
+    ].filter(Boolean) as string[];
+
+    for (const p of searchPaths) {
+      try {
+        const content = await readFile(p, "utf8");
+        const settings = JSON.parse(content);
+        if (settings["api.token"]) {
+          return settings["api.token"];
+        }
+      } catch (e) {
+        // Ignore file read or parse errors and try the next path
+      }
+    }
+    return undefined;
+  }
+
+  private async ping(port: number): Promise<boolean> {
+    try {
+      const res = await fetch(`http://localhost:${port}/ping`);
+      if (res.ok) {
+        const text = await res.text();
+        if (text.includes("JoplinClipperServer")) {
+          this.port = port;
+          return true;
+        }
+      }
+    } catch (e) {
+      // Connection refused, etc.
+    }
+    return false;
+  }
+
+  private async startHeadlessServer(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const joplinBin = require.resolve("joplin/main.js");
+      const args = ["server", "start"];
+      if (this.profilePath) {
+        args.unshift("--profile", this.profilePath);
+      }
+
+      this.serverProcess = spawn(process.execPath, [joplinBin, ...args], {
+        stdio: "pipe",
+        detached: false
+      });
+
+      this.serverProcess.on("error", reject);
+      this.serverProcess.on("close", (code) => {
+        if (code !== 0 && code !== null) {
+          reject(new Error(`Joplin server exited with code ${code}`));
+        }
+      });
+
+      // Listen for the "Starting Clipper server on port" line
+      if (this.serverProcess.stdout) {
+        this.serverProcess.stdout.on("data", (data: Buffer) => {
+          const str = data.toString();
+          const match = str.match(/Starting Clipper server on port (\d+)/);
+          if (match) {
+            this.port = parseInt(match[1], 10);
+            resolve();
+          }
+        });
+      }
+    });
+  }
+
+  private async request<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
+    if (!this.apiToken) {
+      throw new Error("Client not initialized. Call init() first.");
+    }
+
+    const url = new URL(`http://localhost:${this.port}${endpoint}`);
+    url.searchParams.append("token", this.apiToken);
+    for (const [k, v] of Object.entries(params)) {
+      url.searchParams.append(k, v);
+    }
+
+    const res = await fetch(url.toString());
+    if (!res.ok) {
+      throw new Error(`Joplin API Error: ${res.status} ${res.statusText}`);
+    }
+
+    return await res.json() as T;
+  }
+
+  // Iterate over paginated items using 'has_more' and 'page'
+  private async fetchAll<T>(endpoint: string, params: Record<string, string> = {}): Promise<T[]> {
+    let allItems: T[] = [];
+    let page = 1;
+    let hasMore = true;
+
+    while (hasMore) {
+      const res = await this.request<{ items: T[], has_more: boolean }>(endpoint, { ...params, page: page.toString() });
+      allItems = allItems.concat(res.items);
+      hasMore = res.has_more;
+      page++;
+    }
+
+    return allItems;
   }
 
   async listNotebooks(): Promise<any[]> {
-    const stdout = await this.runJoplin(["ls", "/", "--format", "json"]);
-    if (!stdout.trim()) return [];
-    return JSON.parse(stdout);
+    return await this.fetchAll("/folders");
   }
 
-  async listNotes(notebook?: string): Promise<any[]> {
-    if (notebook) {
-      // List for a specific notebook
-      const stdout = await this.runJoplinBatch([`use "${notebook}"`, `ls --format json`]);
-      const lines = stdout.split("\n").filter(l => l.trim().startsWith("["));
-      if (lines.length > 0) {
-        return JSON.parse(lines[lines.length - 1]);
-      }
-      return [];
-    } else {
-      // List for all notebooks
+  async listTags(): Promise<any[]> {
+    return await this.fetchAll("/tags");
+  }
+
+  async listNotes(notebookIdOrName?: string): Promise<any[]> {
+    if (notebookIdOrName) {
+      // Check if it's an ID or a Name
+      let notebookId = notebookIdOrName;
+      
       const notebooks = await this.listNotebooks();
-      if (notebooks.length === 0) return [];
-
-      const commands = notebooks.map((nb: any) => `use "${nb.id}"\nls --format json`);
-      const stdout = await this.runJoplinBatch(commands);
-
-      const lines = stdout.split("\n").filter(l => l.trim().startsWith("["));
-      const allNotes: any[] = [];
-      for (const line of lines) {
-        try {
-          allNotes.push(...JSON.parse(line));
-        } catch (e) {
-          // ignore invalid json lines
-        }
+      const match = notebooks.find(n => n.id === notebookIdOrName || n.title === notebookIdOrName);
+      if (match) {
+        notebookId = match.id;
+      } else if (!notebooks.find(n => n.id === notebookIdOrName)) {
+        return []; // Not found
       }
-      return allNotes;
+
+      return await this.fetchAll(`/folders/${notebookId}/notes`);
+    } else {
+      return await this.fetchAll("/notes");
     }
   }
 
-  async readNote(note: string): Promise<string> {
-    return await this.runJoplin(["cat", note]);
+  async listNotesByTag(tagName: string): Promise<any[]> {
+    const tags = await this.fetchAll<any>("/tags");
+    const tag = tags.find(t => t.title === tagName);
+    if (!tag) return [];
+
+    return await this.fetchAll(`/tags/${tag.id}/notes`);
   }
 
-  async listNotesByTag(tag: string): Promise<any[]> {
-    const stdout = await this.runJoplin(["tag", "list", tag, "--long"]);
-    const lines = stdout.split("\n").filter(l => l.trim().length > 0);
-    // Long output format: ID DATE TITLE
-    // Example: 94749 02/06/2026 03:52 	First note
-    return lines.map(line => {
-      const parts = line.split("\t");
-      const idDate = parts[0].trim();
-      const firstSpace = idDate.indexOf(" ");
-      const id = idDate.substring(0, firstSpace);
-      const title = parts.slice(1).join("\t").trim();
-      return {
-        id,
-        title
-      };
-    }).filter(note => note.id && note.title);
-  }
-
-  async getNoteTags(note: string): Promise<string[]> {
-    const stdout = await this.runJoplin(["tag", "notetags", note]);
-    return stdout.split("\n").map(t => t.trim()).filter(t => t.length > 0);
-  }
-
-  async getNoteMetadata(note: string): Promise<Record<string, any>> {
-    const stdout = await this.runJoplin(["cat", note, "-v"]);
-    const lines = stdout.split("\n");
-    const metadata: Record<string, any> = {};
+  async readNote(noteIdOrName: string): Promise<string> {
+    let noteId = noteIdOrName;
+    const allNotes = await this.fetchAll<any>("/notes");
+    const match = allNotes.find(n => n.id === noteIdOrName || n.title === noteIdOrName);
     
-    // Parse metadata from the bottom up until the first blank line
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const line = lines[i].trim();
-      if (line === "") {
-        if (Object.keys(metadata).length > 0) {
-          // We've found the empty line separating properties from the body
-          break;
-        } else {
-          // Trailing blank lines at the very end of output, skip them
-          continue;
-        }
-      }
-      const colonIndex = line.indexOf(":");
-      if (colonIndex >= 0) {
-        const key = line.substring(0, colonIndex).trim();
-        const value = line.substring(colonIndex + 1).trim();
-        metadata[key] = value;
-      }
+    if (match) {
+      noteId = match.id;
     }
+
+    const note = await this.request<any>(`/notes/${noteId}`, { fields: "body" });
+    return note.body;
+  }
+
+  async getNoteTags(noteId: string): Promise<string[]> {
+    const tags = await this.fetchAll<any>(`/notes/${noteId}/tags`);
+    return tags.map(t => t.title);
+  }
+
+  async getNoteMetadata(noteIdOrName: string): Promise<Record<string, any>> {
+    let noteId = noteIdOrName;
+    const allNotes = await this.fetchAll<any>("/notes");
+    const match = allNotes.find(n => n.id === noteIdOrName || n.title === noteIdOrName);
     
-    metadata.tags = await this.getNoteTags(note);
+    if (match) {
+      noteId = match.id;
+    }
+
+    const fields = "id,parent_id,title,is_todo,todo_due,todo_completed,created_time,updated_time,source_url,source_application,latitude,longitude,altitude,author";
+    const metadata = await this.request<Record<string, any>>(`/notes/${noteId}`, { fields });
+    metadata.tags = await this.getNoteTags(noteId);
     
     return metadata;
   }

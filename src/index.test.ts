@@ -16,10 +16,11 @@ describe("Extension", () => {
       registerTool: jest.fn(),
     };
     initExtension(mockPi as any);
-    expect(mockPi.registerTool).toHaveBeenCalledTimes(4);
+    expect(mockPi.registerTool).toHaveBeenCalledTimes(5);
     
     const registeredTools = mockPi.registerTool.mock.calls.map(call => call[0].name);
     expect(registeredTools).toContain("joplin_list_notebooks");
+    expect(registeredTools).toContain("joplin_list_tags");
     expect(registeredTools).toContain("joplin_list_notes");
     expect(registeredTools).toContain("joplin_read_note");
     expect(registeredTools).toContain("joplin_get_note_metadata");
@@ -29,6 +30,12 @@ describe("Extension", () => {
     (JoplinClient.prototype.listNotebooks as jest.Mock).mockResolvedValue([{ id: "1" }]);
     const result = await listNotebooksTool.execute("id", {});
     expect(result.details.count).toBe(1);
+
+    // Call execute on joplin_list_tags
+    const listTagsTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_list_tags")[0];
+    (JoplinClient.prototype.listTags as jest.Mock).mockResolvedValue([{ id: "1", title: "tag1" }]);
+    const tagsResult = await listTagsTool.execute("id", {});
+    expect(tagsResult.details.count).toBe(1);
 
     // Call execute on joplin_list_notes
     const listNotesTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_list_notes")[0];
