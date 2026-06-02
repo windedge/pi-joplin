@@ -7,10 +7,13 @@ import * as os from "os";
 const execAsync = promisify(exec);
 
 export class JoplinClient {
+  constructor(private profilePath?: string) {}
+
   private async runJoplin(args: string[]): Promise<string> {
     const joplinBin = require.resolve("joplin/main.js");
     const cmdArgs = args.map(a => `"${a.replace(/"/g, '\\"')}"`).join(" ");
-    const { stdout } = await execAsync(`"${process.execPath}" "${joplinBin}" ${cmdArgs}`);
+    const profileArg = this.profilePath ? `--profile "${this.profilePath}" ` : "";
+    const { stdout } = await execAsync(`"${process.execPath}" "${joplinBin}" ${profileArg}${cmdArgs}`);
     return stdout;
   }
 
@@ -19,7 +22,8 @@ export class JoplinClient {
     const batchFile = path.join(os.tmpdir(), `joplin-batch-${Date.now()}-${Math.random().toString(36).substring(7)}.txt`);
     await writeFile(batchFile, commands.join("\n"));
     try {
-      const { stdout } = await execAsync(`"${process.execPath}" "${joplinBin}" batch "${batchFile}"`);
+      const profileArg = this.profilePath ? `--profile "${this.profilePath}" ` : "";
+      const { stdout } = await execAsync(`"${process.execPath}" "${joplinBin}" ${profileArg}batch "${batchFile}"`);
       return stdout;
     } finally {
       await unlink(batchFile).catch(() => {});

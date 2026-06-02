@@ -4,7 +4,7 @@ import { JoplinClient } from "./joplin";
 import { truncateHead, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
-  const client = new JoplinClient();
+  const client = new JoplinClient(process.env.JOPLIN_PROFILE_PATH);
 
   pi.registerTool({
     name: "joplin_list_notebooks",
