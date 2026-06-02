@@ -38,9 +38,9 @@ describe("Extension", () => {
     (JoplinClient.prototype.listNotesByTag as jest.Mock).mockResolvedValue([{ id: "1" }]);
     await listNotesTool.execute("id", { tag: "tag" });
 
-    // Test intersection logic
-    (JoplinClient.prototype.listNotes as jest.Mock).mockResolvedValue([{ id: "1", title: "Shared" }, { id: "2", title: "Notebook Only" }]);
-    (JoplinClient.prototype.listNotesByTag as jest.Mock).mockResolvedValue([{ id: "1", title: "Shared" }, { id: "3", title: "Tag Only" }]);
+    // Test intersection logic (with short IDs from listNotesByTag)
+    (JoplinClient.prototype.listNotes as jest.Mock).mockResolvedValue([{ id: "1234567890", title: "Shared" }, { id: "2222222222", title: "Notebook Only" }]);
+    (JoplinClient.prototype.listNotesByTag as jest.Mock).mockResolvedValue([{ id: "12345", title: "Shared" }, { id: "33333", title: "Tag Only" }]);
     
     const intersectionResult = await listNotesTool.execute("id", { notebook: "nb", tag: "tag" });
     expect(intersectionResult.details.count).toBe(1);

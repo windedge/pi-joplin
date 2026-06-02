@@ -34,12 +34,13 @@ export default function (pi: ExtensionAPI) {
       if (params.notebook && params.tag) {
         // Since Joplin CLI doesn't support intersecting both natively in a single command,
         // we fetch both and intersect them in memory by ID.
+        // Note: listNotesByTag returns short IDs (first 5 chars), while listNotes returns full IDs.
         const [byNotebook, byTag] = await Promise.all([
           client.listNotes(params.notebook),
           client.listNotesByTag(params.tag)
         ]);
-        const tagNoteIds = new Set(byTag.map(n => n.id));
-        notes = byNotebook.filter(n => tagNoteIds.has(n.id));
+        const tagNoteShortIds = byTag.map(n => n.id);
+        notes = byNotebook.filter(n => tagNoteShortIds.some(shortId => n.id.startsWith(shortId)));
       } else if (params.tag) {
         notes = await client.listNotesByTag(params.tag);
       } else {
