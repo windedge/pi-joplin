@@ -21,6 +21,32 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    name: "joplin_list_tags",
+    label: "List Tags",
+    description: "List all tags in Joplin",
+    parameters: Type.Object({}),
+    async execute() {
+      const tags = await client.listTags();
+      
+      const output = JSON.stringify(tags, null, 2);
+      const truncation = truncateHead(output, {
+        maxLines: DEFAULT_MAX_LINES,
+        maxBytes: DEFAULT_MAX_BYTES,
+      });
+
+      let text = truncation.content;
+      if (truncation.truncated) {
+        text += `\n\n[Output truncated: ${truncation.outputLines} of ${truncation.totalLines} lines.]`;
+      }
+
+      return {
+        content: [{ type: "text", text }],
+        details: { count: tags.length },
+      };
+    },
+  });
+
+  pi.registerTool({
     name: "joplin_list_notes",
     label: "List Notes",
     description: "List notes. Can filter by notebook, tag, or both simultaneously. Leave empty for all notes.",
