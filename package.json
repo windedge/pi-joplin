@@ -4,7 +4,8 @@
   "description": "A pi extension providing read-only access to Joplin notes",
   "main": "index.js",
   "scripts": {
-    "test": "jest",
+    "lint": "eslint src/",
+    "test": "npm run lint && jest",
     "test:unit": "jest --testPathIgnorePatterns=e2e.test.ts",
     "test:e2e": "jest e2e.test.ts --passWithNoTests --coverage=false"
   },
@@ -19,10 +20,15 @@
     "typebox": "^1.1.39"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/eslint__js": "^8.42.3",
     "@types/jest": "^30.0.0",
     "@types/node": "^25.9.1",
+    "eslint": "^10.4.1",
+    "globals": "^17.6.0",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.11",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.60.1"
   }
 }

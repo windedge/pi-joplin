@@ -1,10 +1,7 @@
-import { exec, spawn, ChildProcess } from "child_process";
-import { promisify } from "util";
+import { spawn, ChildProcess } from "child_process";
 import { readFile } from "fs/promises";
 import * as path from "path";
 import * as os from "os";
-
-const execAsync = promisify(exec);
 
 export class JoplinClient {
   private apiToken?: string;
@@ -64,7 +61,7 @@ export class JoplinClient {
         if (settings["api.token"]) {
           return settings["api.token"];
         }
-      } catch (e) {
+      } catch {
         // Ignore file read or parse errors and try the next path
       }
     }
@@ -81,7 +78,7 @@ export class JoplinClient {
           return true;
         }
       }
-    } catch (e) {
+    } catch {
       // Connection refused, etc.
     }
     return false;
