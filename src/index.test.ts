@@ -1,4 +1,4 @@
-jest.mock("typebox", () => ({ Type: { Object: jest.fn(), String: jest.fn(), Optional: jest.fn() } }), { virtual: true });
+jest.mock("typebox", () => ({ Type: { Object: jest.fn(), String: jest.fn(), Optional: jest.fn(), Union: jest.fn(), Literal: jest.fn() } }), { virtual: true });
 jest.mock("@earendil-works/pi-coding-agent", () => ({
   truncateHead: jest.fn().mockReturnValue({ content: "mock content", truncated: false }),
   DEFAULT_MAX_BYTES: 1000,

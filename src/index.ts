@@ -168,28 +168,31 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "joplin_list_notes",
     label: "List Notes",
-    description: "List notes. Can filter by notebook, tag, or both simultaneously. Leave empty for all notes.",
+    description: "List notes. Can filter by notebook, tag, or both simultaneously. Also supports filtering by type.",
     parameters: Type.Object({
       notebook: Type.Optional(Type.String({ description: "Notebook ID or name to filter by." })),
       tag: Type.Optional(Type.String({ description: "Tag name to filter by." })),
+      type: Type.Optional(Type.Union([
+        Type.Literal("all"), 
+        Type.Literal("notes"), 
+        Type.Literal("todos"), 
+        Type.Literal("completed_todos")
+      ], { description: "Filter by note type. If omitted, returns notes and incomplete to-dos." }))
     }),
     async execute(_id, params) {
       let notes;
       
       if (params.notebook && params.tag) {
-        // Since Joplin CLI doesn't support intersecting both natively in a single command,
-        // we fetch both and intersect them in memory by ID.
-        // Note: listNotesByTag returns short IDs (first 5 chars), while listNotes returns full IDs.
         const [byNotebook, byTag] = await Promise.all([
-          client.listNotes(params.notebook),
-          client.listNotesByTag(params.tag)
+          client.listNotes(params.notebook, params.type as any),
+          client.listNotesByTag(params.tag, params.type as any)
         ]);
         const tagNoteShortIds = byTag.map(n => n.id);
         notes = byNotebook.filter(n => tagNoteShortIds.some(shortId => n.id.startsWith(shortId)));
       } else if (params.tag) {
-        notes = await client.listNotesByTag(params.tag);
+        notes = await client.listNotesByTag(params.tag, params.type as any);
       } else {
-        notes = await client.listNotes(params.notebook);
+        notes = await client.listNotes(params.notebook, params.type as any);
       }
       
       const output = JSON.stringify(notes, null, 2);

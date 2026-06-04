@@ -47,7 +47,11 @@ describe("JoplinClient E2E", () => {
       `use "E2E Notebook"`,
       `mknote "E2E Note 1"`,
       `mknote "E2E Note 2"`,
+      `mktodo "E2E Todo"`,
+      `mktodo "E2E Completed Todo"`,
+      `done "E2E Completed Todo"`,
       `tag add e2etag "E2E Note 1"`,
+      `tag add e2etag "E2E Todo"`,
       `config api.token test-e2e-token`
     ].join("\n"));
     
@@ -71,11 +75,30 @@ describe("JoplinClient E2E", () => {
     expect(notebooks[0].title).toBe("E2E Notebook");
   });
 
-  it("lists notes in notebook", async () => {
+  it("lists notes in notebook (filtering out completed todos by default)", async () => {
     const notes = await client.listNotes("E2E Notebook");
+    expect(notes.length).toBe(3); // 2 notes + 1 incomplete todo
+    const titles = notes.map(n => n.title).sort();
+    expect(titles).toEqual(["E2E Note 1", "E2E Note 2", "E2E Todo"]);
+  });
+
+  it("lists only completed todos", async () => {
+    const notes = await client.listNotes("E2E Notebook", "completed_todos");
+    expect(notes.length).toBe(1);
+    expect(notes[0].title).toBe("E2E Completed Todo");
+  });
+
+  it("lists only notes (excluding all todos)", async () => {
+    const notes = await client.listNotes("E2E Notebook", "notes");
     expect(notes.length).toBe(2);
     const titles = notes.map(n => n.title).sort();
     expect(titles).toEqual(["E2E Note 1", "E2E Note 2"]);
+  });
+
+  it("lists only incomplete todos", async () => {
+    const notes = await client.listNotes("E2E Notebook", "todos");
+    expect(notes.length).toBe(1);
+    expect(notes[0].title).toBe("E2E Todo");
   });
 
   it("lists all tags", async () => {
@@ -86,8 +109,9 @@ describe("JoplinClient E2E", () => {
 
   it("lists notes by tag", async () => {
     const notes = await client.listNotesByTag("e2etag");
-    expect(notes.length).toBe(1);
-    expect(notes[0].title).toBe("E2E Note 1");
+    expect(notes.length).toBe(2);
+    const titles = notes.map(n => n.title).sort();
+    expect(titles).toEqual(["E2E Note 1", "E2E Todo"]);
   });
 
   it("reads note content", async () => {

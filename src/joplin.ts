@@ -187,7 +187,8 @@ export class JoplinClient {
     return await this.fetchAll("/tags");
   }
 
-  async listNotes(notebookIdOrName?: string): Promise<any[]> {
+  async listNotes(notebookIdOrName?: string, type?: "all" | "notes" | "todos" | "completed_todos"): Promise<any[]> {
+    let notes: any[] = [];
     if (notebookIdOrName) {
       // Check if it's an ID or a Name
       let notebookId = notebookIdOrName;
@@ -200,18 +201,44 @@ export class JoplinClient {
         return []; // Not found
       }
 
-      return await this.fetchAll(`/folders/${notebookId}/notes`);
+      notes = await this.fetchAll(`/folders/${notebookId}/notes`, { fields: "id,title,is_todo,todo_completed" });
     } else {
-      return await this.fetchAll("/notes");
+      notes = await this.fetchAll("/notes", { fields: "id,title,is_todo,todo_completed" });
     }
+
+    if (type === "notes") {
+      notes = notes.filter(n => !n.is_todo);
+    } else if (type === "todos") {
+      notes = notes.filter(n => n.is_todo && !n.todo_completed);
+    } else if (type === "completed_todos") {
+      notes = notes.filter(n => n.is_todo && n.todo_completed);
+    } else {
+      // "all" - default: exclude completed todos unless explicitly requested
+      notes = notes.filter(n => !(n.is_todo && n.todo_completed));
+    }
+
+    return notes;
   }
 
-  async listNotesByTag(tagName: string): Promise<any[]> {
+  async listNotesByTag(tagName: string, type?: "all" | "notes" | "todos" | "completed_todos"): Promise<any[]> {
     const tags = await this.fetchAll<any>("/tags");
     const tag = tags.find(t => t.title === tagName);
     if (!tag) return [];
 
-    return await this.fetchAll(`/tags/${tag.id}/notes`);
+    let notes = await this.fetchAll<any>(`/tags/${tag.id}/notes`, { fields: "id,title,is_todo,todo_completed" });
+
+    if (type === "notes") {
+      notes = notes.filter(n => !n.is_todo);
+    } else if (type === "todos") {
+      notes = notes.filter(n => n.is_todo && !n.todo_completed);
+    } else if (type === "completed_todos") {
+      notes = notes.filter(n => n.is_todo && n.todo_completed);
+    } else {
+      // "all" - default: exclude completed todos unless explicitly requested
+      notes = notes.filter(n => !(n.is_todo && n.todo_completed));
+    }
+
+    return notes;
   }
 
   async readNote(noteIdOrName: string): Promise<string> {

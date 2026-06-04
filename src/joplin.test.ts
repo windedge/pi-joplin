@@ -113,10 +113,41 @@ describe("JoplinClient", () => {
     });
 
     it("listNotes (all)", async () => {
-      mockResponse({ items: [{ id: "n1", title: "Note 1" }], has_more: false });
+      mockResponse({ items: [{ id: "n1", title: "Note 1" }, { id: "n2", title: "Todo", is_todo: 1 }, { id: "n3", title: "Done Todo", is_todo: 1, todo_completed: 123 }], has_more: false });
       const notes = await client.listNotes();
-      expect(notes).toEqual([{ id: "n1", title: "Note 1" }]);
+      expect(notes.map(n => n.id)).toEqual(["n1", "n2"]); // Excludes completed todo by default
       expect(mockFetch.mock.calls[0][0]).toContain("/notes");
+    });
+
+    it("listNotes (filtered by type)", async () => {
+      mockResponse({ items: [{ id: "n1", title: "Note 1" }, { id: "n2", title: "Todo", is_todo: 1 }, { id: "n3", title: "Done Todo", is_todo: 1, todo_completed: 123 }], has_more: false });
+      const completed = await client.listNotes(undefined, "completed_todos");
+      expect(completed.map(n => n.id)).toEqual(["n3"]);
+
+      mockResponse({ items: [{ id: "n1", title: "Note 1" }, { id: "n2", title: "Todo", is_todo: 1 }, { id: "n3", title: "Done Todo", is_todo: 1, todo_completed: 123 }], has_more: false });
+      const notesOnly = await client.listNotes(undefined, "notes");
+      expect(notesOnly.map(n => n.id)).toEqual(["n1"]);
+
+      mockResponse({ items: [{ id: "n1", title: "Note 1" }, { id: "n2", title: "Todo", is_todo: 1 }, { id: "n3", title: "Done Todo", is_todo: 1, todo_completed: 123 }], has_more: false });
+      const todosOnly = await client.listNotes(undefined, "todos");
+      expect(todosOnly.map(n => n.id)).toEqual(["n2"]);
+    });
+
+    it("listNotesByTag (filtered by type)", async () => {
+      mockResponse({ items: [{ id: "t1", title: "mytag" }], has_more: false });
+      mockResponse({ items: [{ id: "n1", title: "Note 1" }, { id: "n2", title: "Todo", is_todo: 1 }, { id: "n3", title: "Done Todo", is_todo: 1, todo_completed: 123 }], has_more: false });
+      const completed = await client.listNotesByTag("mytag", "completed_todos");
+      expect(completed.map(n => n.id)).toEqual(["n3"]);
+
+      mockResponse({ items: [{ id: "t1", title: "mytag" }], has_more: false });
+      mockResponse({ items: [{ id: "n1", title: "Note 1" }, { id: "n2", title: "Todo", is_todo: 1 }, { id: "n3", title: "Done Todo", is_todo: 1, todo_completed: 123 }], has_more: false });
+      const notesOnly = await client.listNotesByTag("mytag", "notes");
+      expect(notesOnly.map(n => n.id)).toEqual(["n1"]);
+
+      mockResponse({ items: [{ id: "t1", title: "mytag" }], has_more: false });
+      mockResponse({ items: [{ id: "n1", title: "Note 1" }, { id: "n2", title: "Todo", is_todo: 1 }, { id: "n3", title: "Done Todo", is_todo: 1, todo_completed: 123 }], has_more: false });
+      const todosOnly = await client.listNotesByTag("mytag", "todos");
+      expect(todosOnly.map(n => n.id)).toEqual(["n2"]);
     });
 
     it("listNotes (by notebook name)", async () => {
