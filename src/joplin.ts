@@ -202,6 +202,8 @@ export class JoplinClient {
 
   async listNotes(notebookIdOrName?: string, type?: "all" | "notes" | "todos" | "completed_todos", page: number = 1): Promise<{ notes: any[], has_more: boolean }> {
     let res;
+    const fields = "id,title,is_todo,todo_completed";
+    
     if (notebookIdOrName) {
       // Check if it's an ID or a Name
       let notebookId = notebookIdOrName;
@@ -214,26 +216,30 @@ export class JoplinClient {
         return { notes: [], has_more: false }; // Not found
       }
 
-      res = await this.fetchPage<any>(`/folders/${notebookId}/notes`, page, { fields: "id,title,is_todo,todo_completed" });
+      res = await this.fetchPage<any>(`/folders/${notebookId}/notes`, page, { fields });
     } else {
-      res = await this.fetchPage<any>("/notes", page, { fields: "id,title,is_todo,todo_completed" });
+      res = await this.fetchPage<any>("/notes", page, { fields });
     }
 
     let notes = res.items;
 
+    // The REST API sometimes returns 0/1 instead of booleans
+    const isTodo = (n: any) => n.is_todo === 1 || n.is_todo === true;
+    const isCompleted = (n: any) => n.todo_completed > 0;
+
     if (type === "notes") {
-      notes = notes.filter(n => !n.is_todo);
+      notes = notes.filter(n => !isTodo(n));
     } else if (type === "todos") {
-      notes = notes.filter(n => n.is_todo && !n.todo_completed);
+      notes = notes.filter(n => isTodo(n) && !isCompleted(n));
     } else if (type === "completed_todos") {
-      notes = notes.filter(n => n.is_todo && n.todo_completed);
+      notes = notes.filter(n => isTodo(n) && isCompleted(n));
     } else {
       // "all" - default: exclude completed todos unless explicitly requested
-      notes = notes.filter(n => !(n.is_todo && n.todo_completed));
+      notes = notes.filter(n => !(isTodo(n) && isCompleted(n)));
     }
 
     notes = notes.map(n => {
-      n.icon = (!n.is_todo) ? "🗎" : (n.todo_completed ? "🗹" : "☐");
+      n.icon = (!isTodo(n)) ? "🗎" : (isCompleted(n) ? "🗹" : "☐");
       return n;
     });
 
@@ -245,22 +251,27 @@ export class JoplinClient {
     const tag = tags.find(t => t.title === tagName);
     if (!tag) return { notes: [], has_more: false };
 
-    const res = await this.fetchPage<any>(`/tags/${tag.id}/notes`, page, { fields: "id,title,is_todo,todo_completed" });
+    const fields = "id,title,is_todo,todo_completed";
+    const res = await this.fetchPage<any>(`/tags/${tag.id}/notes`, page, { fields });
     let notes = res.items;
 
+    // The REST API sometimes returns 0/1 instead of booleans
+    const isTodo = (n: any) => n.is_todo === 1 || n.is_todo === true;
+    const isCompleted = (n: any) => n.todo_completed > 0;
+
     if (type === "notes") {
-      notes = notes.filter(n => !n.is_todo);
+      notes = notes.filter(n => !isTodo(n));
     } else if (type === "todos") {
-      notes = notes.filter(n => n.is_todo && !n.todo_completed);
+      notes = notes.filter(n => isTodo(n) && !isCompleted(n));
     } else if (type === "completed_todos") {
-      notes = notes.filter(n => n.is_todo && n.todo_completed);
+      notes = notes.filter(n => isTodo(n) && isCompleted(n));
     } else {
       // "all" - default: exclude completed todos unless explicitly requested
-      notes = notes.filter(n => !(n.is_todo && n.todo_completed));
+      notes = notes.filter(n => !(isTodo(n) && isCompleted(n)));
     }
 
     notes = notes.map(n => {
-      n.icon = (!n.is_todo) ? "🗎" : (n.todo_completed ? "🗹" : "☐");
+      n.icon = (!isTodo(n)) ? "🗎" : (isCompleted(n) ? "🗹" : "☐");
       return n;
     });
 
