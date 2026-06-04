@@ -288,4 +288,24 @@ export class JoplinClient {
 
     await this.request<any>(`/tags/${tagId}/notes/${noteId}`, { method: "DELETE" });
   }
+
+  async moveNote(noteIdOrName: string, notebookIdOrName: string): Promise<void> {
+    let noteId = noteIdOrName;
+    const allNotes = await this.fetchAll<any>("/notes");
+    const noteMatch = allNotes.find(n => n.id === noteIdOrName || n.title === noteIdOrName);
+    if (noteMatch) {
+      noteId = noteMatch.id;
+    }
+
+    const allNotebooks = await this.listNotebooks();
+    const notebookMatch = allNotebooks.find(n => n.id === notebookIdOrName || n.title === notebookIdOrName);
+    
+    if (!notebookMatch) {
+      throw new Error(`Notebook '${notebookIdOrName}' not found`);
+    }
+
+    const notebookId = notebookMatch.id;
+
+    await this.request<any>(`/notes/${noteId}`, { method: "PUT" }, { parent_id: notebookId });
+  }
 }

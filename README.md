@@ -8,6 +8,7 @@ A pi extension that provides interactive access to Joplin notes.
 - Read individual notes
 - Get metadata for a specific note (e.g. parent_id, is_todo, created_time, tags, etc.)
 - Add or remove tags from notes (Requires Human-in-the-Loop interactive confirmation)
+- Move notes between notebooks (Requires Human-in-the-Loop interactive confirmation)
 
 ## Installation
 

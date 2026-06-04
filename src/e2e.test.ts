@@ -119,4 +119,24 @@ describe("JoplinClient E2E", () => {
     meta = await client.getNoteMetadata("E2E Note 2");
     expect(meta.tags).toEqual(["new-dynamic-tag"]);
   });
+
+  it("moves a note to a different notebook", async () => {
+    // Create a new target notebook
+    const mockRes = await fetch(`http://127.0.0.1:${testPort}/folders?token=test-e2e-token`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Target Notebook" })
+    });
+    const targetNb = await mockRes.json();
+
+    // Verify original notebook
+    let meta = await client.getNoteMetadata("E2E Note 2");
+    expect(meta.parent_id).not.toBe(targetNb.id);
+
+    // Move the note
+    await client.moveNote("E2E Note 2", "Target Notebook");
+
+    // Verify it moved
+    meta = await client.getNoteMetadata("E2E Note 2");
+    expect(meta.parent_id).toBe(targetNb.id);
+  });
 });

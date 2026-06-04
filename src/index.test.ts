@@ -26,7 +26,7 @@ describe("Extension", () => {
       appendEntry: jest.fn(),
     };
     initExtension(mockPi as any);
-    expect(mockPi.registerTool).toHaveBeenCalledTimes(7);
+    expect(mockPi.registerTool).toHaveBeenCalledTimes(8);
     
     const registeredTools = mockPi.registerTool.mock.calls.map(call => call[0].name);
     expect(registeredTools).toContain("joplin_list_notebooks");
@@ -36,6 +36,7 @@ describe("Extension", () => {
     expect(registeredTools).toContain("joplin_get_note_metadata");
     expect(registeredTools).toContain("joplin_add_tag_to_note");
     expect(registeredTools).toContain("joplin_remove_tag_from_note");
+    expect(registeredTools).toContain("joplin_move_note");
 
     // Call execute on joplin_list_notebooks to get branch coverage
     const listNotebooksTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_list_notebooks")[0];
@@ -84,6 +85,11 @@ describe("Extension", () => {
     const removeTagTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_remove_tag_from_note")[0];
     (JoplinClient.prototype.removeTagFromNote as jest.Mock).mockResolvedValue(undefined);
     await removeTagTool.execute("id", { note: "note", tag: "tag" });
+
+    // Call execute on joplin_move_note
+    const moveNoteTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_move_note")[0];
+    (JoplinClient.prototype.moveNote as jest.Mock).mockResolvedValue(undefined);
+    await moveNoteTool.execute("id", { note: "note", notebook: "notebook" });
   });
 
   it("handles tool_call event for HIL approval", async () => {

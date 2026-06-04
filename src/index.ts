@@ -285,4 +285,21 @@ export default function (pi: ExtensionAPI) {
       };
     },
   });
+
+  pi.registerTool({
+    name: "joplin_move_note",
+    label: "Move Note",
+    description: "Move a note to a different notebook. Requires Human-in-the-Loop approval.",
+    parameters: Type.Object({
+      note: Type.String({ description: "Note ID or title to move" }),
+      notebook: Type.String({ description: "Destination Notebook ID or title" }),
+    }),
+    async execute(_id, params) {
+      await client.moveNote(params.note, params.notebook);
+      return {
+        content: [{ type: "text", text: `Successfully moved note '${params.note}' to notebook '${params.notebook}'` }],
+        details: {},
+      };
+    },
+  });
 }

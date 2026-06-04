@@ -312,5 +312,26 @@ describe("JoplinClient", () => {
 
       await expect(client.removeTagFromNote("missing", "n1")).rejects.toThrow("Tag 'missing' not found");
     });
+
+    it("moveNote works successfully", async () => {
+      // 1: fetch notes
+      mockResponse({ items: [{ id: "n1", title: "Note 1" }], has_more: false });
+      // 2: fetch notebooks
+      mockResponse({ items: [{ id: "nb1", title: "Notebook 1" }], has_more: false });
+      // 3: update note
+      mockResponse({});
+
+      await client.moveNote("n1", "Notebook 1");
+      expect(mockFetch.mock.calls[2][0]).toContain("/notes/n1");
+    });
+
+    it("moveNote throws if notebook missing", async () => {
+      // 1: fetch notes
+      mockResponse({ items: [{ id: "n1", title: "Note 1" }], has_more: false });
+      // 2: fetch notebooks
+      mockResponse({ items: [{ id: "nb1", title: "Notebook 1" }], has_more: false });
+
+      await expect(client.moveNote("n1", "missing")).rejects.toThrow("Notebook 'missing' not found");
+    });
   });
 });
