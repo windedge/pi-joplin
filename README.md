@@ -8,21 +8,22 @@ A pi extension that provides read-only access to Joplin notes.
 - Read individual notes
 - Get metadata for a specific note (e.g. parent_id, is_todo, created_time, tags, etc.)
 
-## Usage
+## Installation
 
-You can load this extension in your `pi` environment:
+Install via the `pi` CLI:
 
 ```bash
-pi -e /path/to/pi-joplin/src/index.ts
+pi install npm:pi-joplin
 ```
 
-Or configure it in your `~/.pi/settings.json`:
-```json
-{
-  "extensions": [
-    "/path/to/pi-joplin/src/index.ts"
-  ]
-}
+## Usage
+
+Once installed, the tools will automatically be available in your sessions. 
+
+For local development or testing without installing globally, you can load the extension directly:
+
+```bash
+pi -e /path/to/pi-joplin/dist/index.js
 ```
 
 ## Requirements
