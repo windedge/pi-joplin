@@ -7,6 +7,7 @@ export class JoplinClient {
   private apiToken?: string;
   private port: number = 41184; // Default desktop port
   private serverProcess?: ChildProcess;
+  public apiLimit?: number; // Used for testing pagination with smaller page sizes
 
   constructor(private profilePath?: string, private forceHeadlessPort?: number) {
     if (forceHeadlessPort) {
@@ -165,7 +166,11 @@ export class JoplinClient {
 
   // Fetch a single page of items (returns pagination state)
   private async fetchPage<T>(endpoint: string, page: number, params: Record<string, string> = {}): Promise<{ items: T[], has_more: boolean }> {
-    return await this.request<{ items: T[], has_more: boolean }>(endpoint, { ...params, page: page.toString() });
+    const fetchParams: Record<string, string> = { ...params, page: page.toString() };
+    if (this.apiLimit) {
+      fetchParams.limit = this.apiLimit.toString();
+    }
+    return await this.request<{ items: T[], has_more: boolean }>(endpoint, fetchParams);
   }
 
   // Iterate over paginated items using 'has_more' and 'page'
@@ -175,7 +180,9 @@ export class JoplinClient {
     let hasMore = true;
 
     while (hasMore) {
-      const res = await this.fetchPage<T>(endpoint, page, params);
+      // Intentionally use fetchPage directly so apiLimit bounds aren't applied to internal traversals
+      const fetchParams: Record<string, string> = { ...params, page: page.toString() };
+      const res = await this.request<{ items: T[], has_more: boolean }>(endpoint, fetchParams);
       allItems = allItems.concat(res.items);
       hasMore = res.has_more;
       page++;
@@ -220,6 +227,7 @@ export class JoplinClient {
     } else {
       res = await this.fetchPage<any>("/notes", page, { fields });
     }
+    // console.log("FETCH PAGE RETURNED:", res.items.length, "HAS MORE:", res.has_more);
 
     let notes = res.items;
 

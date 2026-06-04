@@ -101,6 +101,23 @@ describe("JoplinClient E2E", () => {
     expect(res.notes[0].title).toBe("E2E Todo");
   });
 
+  it("lists only incomplete todos across multiple pages", async () => {
+    // Force the client to only fetch 1 item per API request
+    client.apiLimit = 1;
+    
+    // Our notebook has 3 items: Note 1, Note 2, Todo. 
+    // This will force the API to paginate 3 times. If the client doesn't automatically
+    // continue fetching until it finds the matching Todo, it will return an empty list 
+    // for the first page.
+    const res = await client.listNotes("E2E Notebook", "todos");
+    
+    expect(res.notes.length).toBe(1);
+    expect(res.notes[0].title).toBe("E2E Todo");
+    
+    // Restore for subsequent tests
+    client.apiLimit = undefined;
+  });
+
   it("lists all tags", async () => {
     const tags = await client.listTags();
     expect(tags.length).toBe(1);

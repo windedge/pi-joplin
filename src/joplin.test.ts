@@ -349,6 +349,18 @@ describe("JoplinClient", () => {
       await expect(client.removeTagFromNote("missing", "n1")).rejects.toThrow("Tag 'missing' not found");
     });
 
+    it("removeTagFromNote succeeds if tag exists", async () => {
+      // 1: fetch notes
+      mockResponse({ items: [{ id: "n1", title: "Note 1" }], has_more: false });
+      // 2: fetch tags
+      mockResponse({ items: [{ id: "t1", title: "tag1" }], has_more: false });
+      // 3: delete tag relation
+      mockResponse({});
+
+      await client.removeTagFromNote("tag1", "n1");
+      expect(mockFetch.mock.calls[2][0]).toContain("/tags/t1/notes/n1");
+    });
+
     it("moveNote works successfully", async () => {
       // 1: fetch notes
       mockResponse({ items: [{ id: "n1", title: "Note 1" }], has_more: false });
@@ -413,6 +425,14 @@ describe("JoplinClient", () => {
       mockResponse({});
 
       await client.setTodoCompletion("Note 1", true);
+      expect(mockFetch.mock.calls[1][0]).toContain("/notes/n1");
+    });
+
+    it("setTodoCompletion works to uncomplete", async () => {
+      mockResponse({ items: [{ id: "n1", title: "Note 1" }], has_more: false });
+      mockResponse({});
+
+      await client.setTodoCompletion("Note 1", false);
       expect(mockFetch.mock.calls[1][0]).toContain("/notes/n1");
     });
   });
