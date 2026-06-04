@@ -15,13 +15,23 @@ export class JoplinClient {
   }
 
   /**
+   * Discovers and sets the API token from Joplin's settings
+   */
+  async setApiToken(token: string) {
+    this.apiToken = token;
+  }
+
+  /**
    * Initializes the client by discovering the API token and ensuring a server is available.
    */
   async init(): Promise<void> {
-    // 1. Auto-discover the API token
-    this.apiToken = await this.discoverApiToken();
+    // 1. Auto-discover the API token if not manually set
     if (!this.apiToken) {
-      throw new Error("Could not find Joplin api.token in settings.json. Have you enabled the Web Clipper?");
+      this.apiToken = await this.discoverApiToken();
+    }
+    
+    if (!this.apiToken) {
+      throw new Error("Could not find Joplin api.token. Either configure it in pi-joplin settings or enable the Web Clipper in Joplin Desktop.");
     }
 
     // 2. Check if a server is already running (skip if forcing a specific headless port)

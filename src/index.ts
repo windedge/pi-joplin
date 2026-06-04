@@ -4,7 +4,51 @@ import { JoplinClient } from "./joplin";
 import { truncateHead, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
-  const client = new JoplinClient(process.env.JOPLIN_PROFILE_PATH);
+  let client = new JoplinClient(process.env.JOPLIN_PROFILE_PATH);
+
+  let myConfig: { profilePath?: string, apiToken?: string } = {};
+
+  // Re-initialize client if settings change
+  async function reloadClient() {
+    client = new JoplinClient(myConfig.profilePath || process.env.JOPLIN_PROFILE_PATH);
+    if (myConfig.apiToken) {
+      await client.setApiToken(myConfig.apiToken);
+    }
+    
+    try {
+      await client.init();
+    } catch {
+      // Ignore init errors during background load; tools will throw if not initialized.
+    }
+  }
+
+  pi.on("session_start", async (_event, ctx) => {
+    myConfig = {};
+    // Reconstruct configuration from session
+    for (const entry of ctx.sessionManager.getEntries()) {
+      if (entry.type === "custom" && entry.customType === "joplin-config") {
+        myConfig = entry.data as { profilePath?: string, apiToken?: string };
+      }
+    }
+    await reloadClient();
+  });
+
+  pi.registerCommand("joplin-config", {
+    description: "Configure Joplin CLI connection settings",
+    handler: async (_args, ctx) => {
+      const profilePath = await ctx.ui.input("Enter Joplin profile path (leave empty for default):", myConfig.profilePath || "");
+      const apiToken = await ctx.ui.input("Enter Joplin Web Clipper API Token (leave empty to auto-discover):", myConfig.apiToken || "");
+      
+      myConfig = {
+        profilePath: profilePath || undefined,
+        apiToken: apiToken || undefined
+      };
+      
+      pi.appendEntry("joplin-config", myConfig);
+      await reloadClient();
+      ctx.ui.notify("Joplin configuration updated and saved to session", "info");
+    }
+  });
 
   pi.registerTool({
     name: "joplin_list_notebooks",

@@ -27,4 +27,14 @@ Or configure it in your `~/.pi/settings.json`:
 
 ## Requirements
 - Joplin CLI must be installed or the extension will use its internal `joplin` NPM dependency.
-- Joplin data must be accessible to the executing user.
+- The `Web Clipper` must be enabled inside Joplin Desktop (or you must supply a custom API Token).
+
+## Configuration
+
+If you do not use the default profile location, or if you need to manually connect to a headless background server via API token, you can invoke the configuration UI via `pi`:
+
+```
+/joplin-config
+```
+
+This will prompt you for an API token and a profile path and persist them safely inside your active session.

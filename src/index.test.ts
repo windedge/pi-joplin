@@ -14,6 +14,9 @@ describe("Extension", () => {
   it("registers tools", async () => {
     const mockPi = {
       registerTool: jest.fn(),
+      registerCommand: jest.fn(),
+      on: jest.fn(),
+      appendEntry: jest.fn(),
     };
     initExtension(mockPi as any);
     expect(mockPi.registerTool).toHaveBeenCalledTimes(5);
@@ -62,5 +65,64 @@ describe("Extension", () => {
     const getMetadataTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_get_note_metadata")[0];
     (JoplinClient.prototype.getNoteMetadata as jest.Mock).mockResolvedValue({ id: "1" });
     await getMetadataTool.execute("id", { note: "note" });
+  });
+
+  it("registers config command and event listener", async () => {
+    const mockPi = {
+      registerTool: jest.fn(),
+      registerCommand: jest.fn(),
+      on: jest.fn(),
+      appendEntry: jest.fn(),
+    };
+    initExtension(mockPi as any);
+    
+    expect(mockPi.on).toHaveBeenCalledWith("session_start", expect.any(Function));
+    expect(mockPi.registerCommand).toHaveBeenCalledWith("joplin-config", expect.any(Object));
+
+    // Test session_start handler
+    const sessionStartHandler = mockPi.on.mock.calls.find(call => call[0] === "session_start")[1];
+    
+    // Default load (no config)
+    await sessionStartHandler(null, { sessionManager: { getEntries: () => [] } });
+    
+    // Load with config
+    await sessionStartHandler(null, { 
+      sessionManager: { 
+        getEntries: () => [
+          { type: "custom", customType: "joplin-config", data: { apiToken: "test" } },
+          { type: "other" }
+        ] 
+      } 
+    });
+
+    // Test joplin-config command
+    const configHandler = mockPi.registerCommand.mock.calls.find(call => call[0] === "joplin-config")[1].handler;
+    const mockCtx = {
+      ui: {
+        input: jest.fn()
+          .mockResolvedValueOnce("new-profile")
+          .mockResolvedValueOnce("new-token"),
+        notify: jest.fn()
+      }
+    };
+
+    await configHandler({}, mockCtx);
+    
+    expect(mockCtx.ui.input).toHaveBeenCalledTimes(2);
+    expect(mockPi.appendEntry).toHaveBeenCalledWith("joplin-config", {
+      profilePath: "new-profile",
+      apiToken: "new-token"
+    });
+    expect(mockCtx.ui.notify).toHaveBeenCalledWith(expect.stringContaining("saved"), "info");
+
+    // Test joplin-config command with empty inputs (should save undefined)
+    mockCtx.ui.input = jest.fn()
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("");
+    await configHandler({}, mockCtx);
+    expect(mockPi.appendEntry).toHaveBeenCalledWith("joplin-config", {
+      profilePath: undefined,
+      apiToken: undefined
+    });
   });
 });
