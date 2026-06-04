@@ -76,29 +76,29 @@ describe("JoplinClient E2E", () => {
   });
 
   it("lists notes in notebook (filtering out completed todos by default)", async () => {
-    const notes = await client.listNotes("E2E Notebook");
-    expect(notes.length).toBe(3); // 2 notes + 1 incomplete todo
-    const titles = notes.map(n => n.title).sort();
+    const res = await client.listNotes("E2E Notebook");
+    expect(res.notes.length).toBe(3); // 2 notes + 1 incomplete todo
+    const titles = res.notes.map(n => n.title).sort();
     expect(titles).toEqual(["E2E Note 1", "E2E Note 2", "E2E Todo"]);
   });
 
   it("lists only completed todos", async () => {
-    const notes = await client.listNotes("E2E Notebook", "completed_todos");
-    expect(notes.length).toBe(1);
-    expect(notes[0].title).toBe("E2E Completed Todo");
+    const res = await client.listNotes("E2E Notebook", "completed_todos");
+    expect(res.notes.length).toBe(1);
+    expect(res.notes[0].title).toBe("E2E Completed Todo");
   });
 
   it("lists only notes (excluding all todos)", async () => {
-    const notes = await client.listNotes("E2E Notebook", "notes");
-    expect(notes.length).toBe(2);
-    const titles = notes.map(n => n.title).sort();
+    const res = await client.listNotes("E2E Notebook", "notes");
+    expect(res.notes.length).toBe(2);
+    const titles = res.notes.map(n => n.title).sort();
     expect(titles).toEqual(["E2E Note 1", "E2E Note 2"]);
   });
 
   it("lists only incomplete todos", async () => {
-    const notes = await client.listNotes("E2E Notebook", "todos");
-    expect(notes.length).toBe(1);
-    expect(notes[0].title).toBe("E2E Todo");
+    const res = await client.listNotes("E2E Notebook", "todos");
+    expect(res.notes.length).toBe(1);
+    expect(res.notes[0].title).toBe("E2E Todo");
   });
 
   it("lists all tags", async () => {
@@ -108,9 +108,9 @@ describe("JoplinClient E2E", () => {
   });
 
   it("lists notes by tag", async () => {
-    const notes = await client.listNotesByTag("e2etag");
-    expect(notes.length).toBe(2);
-    const titles = notes.map(n => n.title).sort();
+    const res = await client.listNotesByTag("e2etag");
+    expect(res.notes.length).toBe(2);
+    const titles = res.notes.map(n => n.title).sort();
     expect(titles).toEqual(["E2E Note 1", "E2E Todo"]);
   });
 
@@ -162,5 +162,39 @@ describe("JoplinClient E2E", () => {
     // Verify it moved
     meta = await client.getNoteMetadata("E2E Note 2");
     expect(meta.parent_id).toBe(targetNb.id);
+  });
+
+  it("creates, edits, and completes notes/todos", async () => {
+    const todo = await client.createNote({
+      title: "New Todo",
+      type: "todo",
+      body: "Initial body",
+      notebookIdOrName: "E2E Notebook"
+    });
+    expect(todo.id).toBeDefined();
+
+    // Verify it's incomplete
+    let res = await client.listNotes("E2E Notebook", "todos");
+    expect(res.notes.find(n => n.id === todo.id)).toBeDefined();
+
+    // Edit it
+    await client.editNote(todo.id, { title: "Updated Todo", body: "New body" });
+    const body = await client.readNote(todo.id);
+    expect(body.trim()).toBe("New body"); // Joplin may append a newline
+
+    // Complete it
+    await client.setTodoCompletion(todo.id, true);
+    
+    // Verify it moved to completed
+    res = await client.listNotes("E2E Notebook", "todos");
+    expect(res.notes.find(n => n.id === todo.id)).toBeUndefined();
+    
+    res = await client.listNotes("E2E Notebook", "completed_todos");
+    expect(res.notes.find(n => n.id === todo.id)).toBeDefined();
+
+    // Change type back to regular note
+    await client.editNote(todo.id, { type: "note" });
+    res = await client.listNotes("E2E Notebook", "notes");
+    expect(res.notes.find(n => n.id === todo.id)).toBeDefined();
   });
 });

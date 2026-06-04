@@ -1,4 +1,4 @@
-jest.mock("typebox", () => ({ Type: { Object: jest.fn(), String: jest.fn(), Optional: jest.fn(), Union: jest.fn(), Literal: jest.fn() } }), { virtual: true });
+jest.mock("typebox", () => ({ Type: { Object: jest.fn(), String: jest.fn(), Optional: jest.fn(), Union: jest.fn(), Literal: jest.fn(), Boolean: jest.fn(), Number: jest.fn() } }), { virtual: true });
 jest.mock("@earendil-works/pi-coding-agent", () => ({
   truncateHead: jest.fn().mockReturnValue({ content: "mock content", truncated: false }),
   DEFAULT_MAX_BYTES: 1000,
@@ -26,7 +26,7 @@ describe("Extension", () => {
       appendEntry: jest.fn(),
     };
     initExtension(mockPi as any);
-    expect(mockPi.registerTool).toHaveBeenCalledTimes(8);
+    expect(mockPi.registerTool).toHaveBeenCalledTimes(11);
     
     const registeredTools = mockPi.registerTool.mock.calls.map(call => call[0].name);
     expect(registeredTools).toContain("joplin_list_notebooks");
@@ -37,6 +37,9 @@ describe("Extension", () => {
     expect(registeredTools).toContain("joplin_add_tag_to_note");
     expect(registeredTools).toContain("joplin_remove_tag_from_note");
     expect(registeredTools).toContain("joplin_move_note");
+    expect(registeredTools).toContain("joplin_create_note");
+    expect(registeredTools).toContain("joplin_edit_note");
+    expect(registeredTools).toContain("joplin_set_todo_completion");
 
     // Call execute on joplin_list_notebooks to get branch coverage
     const listNotebooksTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_list_notebooks")[0];
@@ -52,15 +55,15 @@ describe("Extension", () => {
 
     // Call execute on joplin_list_notes
     const listNotesTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_list_notes")[0];
-    (JoplinClient.prototype.listNotes as jest.Mock).mockResolvedValue([{ id: "1" }]);
+    (JoplinClient.prototype.listNotes as jest.Mock).mockResolvedValue({ notes: [{ id: "1" }], has_more: false });
     await listNotesTool.execute("id", { notebook: "nb" });
 
-    (JoplinClient.prototype.listNotesByTag as jest.Mock).mockResolvedValue([{ id: "1" }]);
+    (JoplinClient.prototype.listNotesByTag as jest.Mock).mockResolvedValue({ notes: [{ id: "1" }], has_more: false });
     await listNotesTool.execute("id", { tag: "tag" });
 
     // Test intersection logic (with short IDs from listNotesByTag)
-    (JoplinClient.prototype.listNotes as jest.Mock).mockResolvedValue([{ id: "1234567890", title: "Shared" }, { id: "2222222222", title: "Notebook Only" }]);
-    (JoplinClient.prototype.listNotesByTag as jest.Mock).mockResolvedValue([{ id: "12345", title: "Shared" }, { id: "33333", title: "Tag Only" }]);
+    (JoplinClient.prototype.listNotes as jest.Mock).mockResolvedValue({ notes: [{ id: "1234567890", title: "Shared" }, { id: "2222222222", title: "Notebook Only" }], has_more: false });
+    (JoplinClient.prototype.listNotesByTag as jest.Mock).mockResolvedValue({ notes: [{ id: "12345", title: "Shared" }, { id: "33333", title: "Tag Only" }], has_more: false });
     
     const intersectionResult = await listNotesTool.execute("id", { notebook: "nb", tag: "tag" });
     expect(intersectionResult.details.count).toBe(1);
@@ -90,6 +93,21 @@ describe("Extension", () => {
     const moveNoteTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_move_note")[0];
     (JoplinClient.prototype.moveNote as jest.Mock).mockResolvedValue(undefined);
     await moveNoteTool.execute("id", { note: "note", notebook: "notebook" });
+
+    // Call execute on joplin_create_note
+    const createNoteTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_create_note")[0];
+    (JoplinClient.prototype.createNote as jest.Mock).mockResolvedValue({ id: "newid" });
+    await createNoteTool.execute("id", { title: "title", type: "note" });
+
+    // Call execute on joplin_edit_note
+    const editNoteTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_edit_note")[0];
+    (JoplinClient.prototype.editNote as jest.Mock).mockResolvedValue(undefined);
+    await editNoteTool.execute("id", { note: "note", title: "title" });
+
+    // Call execute on joplin_set_todo_completion
+    const setTodoTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_set_todo_completion")[0];
+    (JoplinClient.prototype.setTodoCompletion as jest.Mock).mockResolvedValue(undefined);
+    await setTodoTool.execute("id", { note: "note", completed: true });
   });
 
   it("handles tool_call event for HIL approval", async () => {

@@ -163,6 +163,11 @@ export class JoplinClient {
     return JSON.parse(text) as T;
   }
 
+  // Fetch a single page of items (returns pagination state)
+  private async fetchPage<T>(endpoint: string, page: number, params: Record<string, string> = {}): Promise<{ items: T[], has_more: boolean }> {
+    return await this.request<{ items: T[], has_more: boolean }>(endpoint, { ...params, page: page.toString() });
+  }
+
   // Iterate over paginated items using 'has_more' and 'page'
   private async fetchAll<T>(endpoint: string, params: Record<string, string> = {}): Promise<T[]> {
     let allItems: T[] = [];
@@ -170,7 +175,7 @@ export class JoplinClient {
     let hasMore = true;
 
     while (hasMore) {
-      const res = await this.request<{ items: T[], has_more: boolean }>(endpoint, { ...params, page: page.toString() });
+      const res = await this.fetchPage<T>(endpoint, page, params);
       allItems = allItems.concat(res.items);
       hasMore = res.has_more;
       page++;
@@ -187,8 +192,8 @@ export class JoplinClient {
     return await this.fetchAll("/tags");
   }
 
-  async listNotes(notebookIdOrName?: string, type?: "all" | "notes" | "todos" | "completed_todos"): Promise<any[]> {
-    let notes: any[] = [];
+  async listNotes(notebookIdOrName?: string, type?: "all" | "notes" | "todos" | "completed_todos", page: number = 1): Promise<{ notes: any[], has_more: boolean }> {
+    let res;
     if (notebookIdOrName) {
       // Check if it's an ID or a Name
       let notebookId = notebookIdOrName;
@@ -198,13 +203,15 @@ export class JoplinClient {
       if (match) {
         notebookId = match.id;
       } else if (!notebooks.find(n => n.id === notebookIdOrName)) {
-        return []; // Not found
+        return { notes: [], has_more: false }; // Not found
       }
 
-      notes = await this.fetchAll(`/folders/${notebookId}/notes`, { fields: "id,title,is_todo,todo_completed" });
+      res = await this.fetchPage<any>(`/folders/${notebookId}/notes`, page, { fields: "id,title,is_todo,todo_completed" });
     } else {
-      notes = await this.fetchAll("/notes", { fields: "id,title,is_todo,todo_completed" });
+      res = await this.fetchPage<any>("/notes", page, { fields: "id,title,is_todo,todo_completed" });
     }
+
+    let notes = res.items;
 
     if (type === "notes") {
       notes = notes.filter(n => !n.is_todo);
@@ -217,15 +224,16 @@ export class JoplinClient {
       notes = notes.filter(n => !(n.is_todo && n.todo_completed));
     }
 
-    return notes;
+    return { notes, has_more: res.has_more };
   }
 
-  async listNotesByTag(tagName: string, type?: "all" | "notes" | "todos" | "completed_todos"): Promise<any[]> {
+  async listNotesByTag(tagName: string, type?: "all" | "notes" | "todos" | "completed_todos", page: number = 1): Promise<{ notes: any[], has_more: boolean }> {
     const tags = await this.fetchAll<any>("/tags");
     const tag = tags.find(t => t.title === tagName);
-    if (!tag) return [];
+    if (!tag) return { notes: [], has_more: false };
 
-    let notes = await this.fetchAll<any>(`/tags/${tag.id}/notes`, { fields: "id,title,is_todo,todo_completed" });
+    const res = await this.fetchPage<any>(`/tags/${tag.id}/notes`, page, { fields: "id,title,is_todo,todo_completed" });
+    let notes = res.items;
 
     if (type === "notes") {
       notes = notes.filter(n => !n.is_todo);
@@ -238,7 +246,7 @@ export class JoplinClient {
       notes = notes.filter(n => !(n.is_todo && n.todo_completed));
     }
 
-    return notes;
+    return { notes, has_more: res.has_more };
   }
 
   async readNote(noteIdOrName: string): Promise<string> {
@@ -334,5 +342,54 @@ export class JoplinClient {
     const notebookId = notebookMatch.id;
 
     await this.request<any>(`/notes/${noteId}`, { method: "PUT" }, { parent_id: notebookId });
+  }
+
+  async createNote(options: { title: string, type: "note" | "todo", body?: string, notebookIdOrName?: string }): Promise<any> {
+    const payload: any = {
+      title: options.title,
+      is_todo: options.type === "todo" ? 1 : 0
+    };
+    if (options.body !== undefined) {
+      payload.body = options.body;
+    }
+    if (options.notebookIdOrName) {
+      const allNotebooks = await this.listNotebooks();
+      const notebookMatch = allNotebooks.find(n => n.id === options.notebookIdOrName || n.title === options.notebookIdOrName);
+      if (!notebookMatch) {
+        throw new Error(`Notebook '${options.notebookIdOrName}' not found`);
+      }
+      payload.parent_id = notebookMatch.id;
+    }
+    return await this.request<any>("/notes", { method: "POST" }, payload);
+  }
+
+  async editNote(noteIdOrName: string, options: { title?: string, body?: string, type?: "note" | "todo" }): Promise<void> {
+    let noteId = noteIdOrName;
+    const allNotes = await this.fetchAll<any>("/notes");
+    const noteMatch = allNotes.find(n => n.id === noteIdOrName || n.title === noteIdOrName);
+    if (noteMatch) {
+      noteId = noteMatch.id;
+    }
+    
+    const payload: any = {};
+    if (options.title !== undefined) payload.title = options.title;
+    if (options.body !== undefined) payload.body = options.body;
+    if (options.type !== undefined) payload.is_todo = options.type === "todo" ? 1 : 0;
+    
+    if (Object.keys(payload).length === 0) return;
+    
+    await this.request<any>(`/notes/${noteId}`, { method: "PUT" }, payload);
+  }
+
+  async setTodoCompletion(noteIdOrName: string, completed: boolean): Promise<void> {
+    let noteId = noteIdOrName;
+    const allNotes = await this.fetchAll<any>("/notes");
+    const noteMatch = allNotes.find(n => n.id === noteIdOrName || n.title === noteIdOrName);
+    if (noteMatch) {
+      noteId = noteMatch.id;
+    }
+    
+    const payload = { todo_completed: completed ? Date.now() : 0 };
+    await this.request<any>(`/notes/${noteId}`, { method: "PUT" }, payload);
   }
 }

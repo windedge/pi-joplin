@@ -177,22 +177,27 @@ export default function (pi: ExtensionAPI) {
         Type.Literal("notes"), 
         Type.Literal("todos"), 
         Type.Literal("completed_todos")
-      ], { description: "Filter by note type. If omitted, returns notes and incomplete to-dos." }))
+      ], { description: "Filter by note type. If omitted, returns notes and incomplete to-dos." })),
+      page: Type.Optional(Type.Number({ description: "Page number to fetch (1-indexed). Use if previous result indicated more pages." }))
     }),
     async execute(_id, params) {
       let notes;
+      const page = params.page || 1;
       
       if (params.notebook && params.tag) {
         const [byNotebook, byTag] = await Promise.all([
-          client.listNotes(params.notebook, params.type as any),
-          client.listNotesByTag(params.tag, params.type as any)
+          client.listNotes(params.notebook, params.type as any, page),
+          client.listNotesByTag(params.tag, params.type as any, page)
         ]);
-        const tagNoteShortIds = byTag.map(n => n.id);
-        notes = byNotebook.filter(n => tagNoteShortIds.some(shortId => n.id.startsWith(shortId)));
+        const tagNoteShortIds = byTag.notes.map(n => n.id);
+        notes = {
+          notes: byNotebook.notes.filter(n => tagNoteShortIds.some(shortId => n.id.startsWith(shortId))),
+          has_more: byNotebook.has_more || byTag.has_more
+        };
       } else if (params.tag) {
-        notes = await client.listNotesByTag(params.tag, params.type as any);
+        notes = await client.listNotesByTag(params.tag, params.type as any, page);
       } else {
-        notes = await client.listNotes(params.notebook, params.type as any);
+        notes = await client.listNotes(params.notebook, params.type as any, page);
       }
       
       const output = JSON.stringify(notes, null, 2);
@@ -203,12 +208,12 @@ export default function (pi: ExtensionAPI) {
 
       let text = truncation.content;
       if (truncation.truncated) {
-        text += `\n\n[Output truncated: ${truncation.outputLines} of ${truncation.totalLines} lines. Query specific notebooks or tags if needed.]`;
+        text += `\n\n[Output truncated: ${truncation.outputLines} of ${truncation.totalLines} lines. Query specific notebooks, tags, or use 'page' parameter to fetch more.]`;
       }
 
       return {
         content: [{ type: "text", text }],
-        details: { count: notes.length },
+        details: { count: notes.notes.length, has_more: notes.has_more, page },
       };
     },
   });
@@ -301,6 +306,71 @@ export default function (pi: ExtensionAPI) {
       await client.moveNote(params.note, params.notebook);
       return {
         content: [{ type: "text", text: `Successfully moved note '${params.note}' to notebook '${params.notebook}'` }],
+        details: {},
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "joplin_create_note",
+    label: "Create Note",
+    description: "Create a new note or todo. Requires Human-in-the-Loop approval.",
+    parameters: Type.Object({
+      title: Type.String({ description: "Title of the new note/todo" }),
+      type: Type.Union([Type.Literal("note"), Type.Literal("todo")], { description: "Whether to create a note or a todo" }),
+      body: Type.Optional(Type.String({ description: "Markdown body content" })),
+      notebook: Type.Optional(Type.String({ description: "Optional destination notebook ID or title" })),
+    }),
+    async execute(_id, params) {
+      const result = await client.createNote({
+        title: params.title,
+        type: params.type as "note" | "todo",
+        body: params.body,
+        notebookIdOrName: params.notebook
+      });
+      return {
+        content: [{ type: "text", text: `Successfully created ${params.type} '${params.title}'. ID: ${result.id}` }],
+        details: { id: result.id },
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "joplin_edit_note",
+    label: "Edit Note",
+    description: "Edit an existing note's title, body, or type. Requires Human-in-the-Loop approval.",
+    parameters: Type.Object({
+      note: Type.String({ description: "Note ID or title to edit" }),
+      title: Type.Optional(Type.String({ description: "New title" })),
+      body: Type.Optional(Type.String({ description: "New markdown body content" })),
+      type: Type.Optional(Type.Union([Type.Literal("note"), Type.Literal("todo")], { description: "Change type to note or todo" })),
+    }),
+    async execute(_id, params) {
+      await client.editNote(params.note, {
+        title: params.title,
+        body: params.body,
+        type: params.type as "note" | "todo" | undefined
+      });
+      return {
+        content: [{ type: "text", text: `Successfully edited note '${params.note}'` }],
+        details: {},
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "joplin_set_todo_completion",
+    label: "Set Todo Completion",
+    description: "Mark a todo as completed or uncompleted. Requires Human-in-the-Loop approval.",
+    parameters: Type.Object({
+      note: Type.String({ description: "Note ID or title of the todo" }),
+      completed: Type.Boolean({ description: "True to mark completed, false to uncomplete" }),
+    }),
+    async execute(_id, params) {
+      await client.setTodoCompletion(params.note, params.completed);
+      const status = params.completed ? "completed" : "uncompleted";
+      return {
+        content: [{ type: "text", text: `Successfully marked todo '${params.note}' as ${status}` }],
         details: {},
       };
     },
