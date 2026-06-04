@@ -2,14 +2,22 @@
   "name": "pi-joplin",
   "version": "1.0.0",
   "description": "A pi extension providing read-only access to Joplin notes",
-  "main": "index.js",
+  "main": "dist/index.js",
+  "pi": {
+    "extensions": ["dist/index.js"]
+  },
   "scripts": {
+    "build": "tsc",
     "lint": "eslint src/",
     "test": "npm run lint && jest",
     "test:unit": "jest --testPathIgnorePatterns=e2e.test.ts",
     "test:e2e": "jest e2e.test.ts --passWithNoTests --coverage=false"
   },
-  "keywords": [],
+  "keywords": [
+    "pi-package",
+    "joplin",
+    "notes"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {

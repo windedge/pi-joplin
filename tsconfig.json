@@ -3,6 +3,8 @@
     "target": "ES2022",
     "module": "CommonJS",
     "moduleResolution": "node",
+    "rootDir": "src",
+    "ignoreDeprecations": "6.0",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -10,5 +12,6 @@
     "outDir": "dist",
     "types": ["jest", "node"]
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "exclude": ["src/**/*.test.ts"]
 }
