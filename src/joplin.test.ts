@@ -101,6 +101,7 @@ describe("JoplinClient", () => {
     const mockResponse = (data: any) => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
+        text: () => Promise.resolve(JSON.stringify(data)),
         json: () => Promise.resolve(data)
       });
     };
@@ -122,12 +123,12 @@ describe("JoplinClient", () => {
       // First call: listNotebooks
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ items: [{ id: "nb1", title: "Notebook 1" }], has_more: false })
+        text: () => Promise.resolve(JSON.stringify({ items: [{ id: "nb1", title: "Notebook 1" }], has_more: false }))
       });
       // Second call: notes in notebook
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ items: [{ id: "n1", title: "Note 1" }], has_more: false })
+        text: () => Promise.resolve(JSON.stringify({ items: [{ id: "n1", title: "Note 1" }], has_more: false }))
       });
       
       const notes = await client.listNotes("Notebook 1");
@@ -135,7 +136,7 @@ describe("JoplinClient", () => {
       expect(mockFetch.mock.calls[1][0]).toContain("/folders/nb1/notes");
     });
 
-  it("listTags", async () => {
+    it("listTags", async () => {
       mockResponse({ items: [{ id: "t1", title: "tag1" }], has_more: false });
       const tags = await client.listTags();
       expect(tags).toEqual([{ id: "t1", title: "tag1" }]);
@@ -145,12 +146,12 @@ describe("JoplinClient", () => {
       // First call: list tags
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ items: [{ id: "t1", title: "mytag" }], has_more: false })
+        text: () => Promise.resolve(JSON.stringify({ items: [{ id: "t1", title: "mytag" }], has_more: false }))
       });
       // Second call: notes in tag
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ items: [{ id: "n1", title: "Note 1" }], has_more: false })
+        text: () => Promise.resolve(JSON.stringify({ items: [{ id: "n1", title: "Note 1" }], has_more: false }))
       });
 
       const notes = await client.listNotesByTag("mytag");
@@ -162,12 +163,12 @@ describe("JoplinClient", () => {
       // First call: fetch all notes to match name to ID
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ items: [{ id: "n1", title: "Note 1" }], has_more: false })
+        text: () => Promise.resolve(JSON.stringify({ items: [{ id: "n1", title: "Note 1" }], has_more: false }))
       });
       // Second call: fetch body
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ body: "Note content" })
+        text: () => Promise.resolve(JSON.stringify({ body: "Note content" }))
       });
 
       const body = await client.readNote("Note 1");
@@ -178,17 +179,17 @@ describe("JoplinClient", () => {
       // First call: fetch all notes
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ items: [{ id: "n1", title: "Note 1" }], has_more: false })
+        text: () => Promise.resolve(JSON.stringify({ items: [{ id: "n1", title: "Note 1" }], has_more: false }))
       });
       // Second call: fetch fields
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ id: "n1", title: "Note 1", parent_id: "nb1" })
+        text: () => Promise.resolve(JSON.stringify({ id: "n1", title: "Note 1", parent_id: "nb1" }))
       });
       // Third call: fetch tags
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ items: [{ id: "t1", title: "tag1" }], has_more: false })
+        text: () => Promise.resolve(JSON.stringify({ items: [{ id: "t1", title: "tag1" }], has_more: false }))
       });
 
       const meta = await client.getNoteMetadata("Note 1");
@@ -201,17 +202,17 @@ describe("JoplinClient", () => {
       // First call: fetch all notes (no match found for title)
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ items: [{ id: "different", title: "Other Note" }], has_more: false })
+        text: () => Promise.resolve(JSON.stringify({ items: [{ id: "different", title: "Other Note" }], has_more: false }))
       });
       // Second call: fetch fields using the provided ID
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ id: "real-id", title: "Missing Note", parent_id: "nb1" })
+        text: () => Promise.resolve(JSON.stringify({ id: "real-id", title: "Missing Note", parent_id: "nb1" }))
       });
       // Third call: fetch tags
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ items: [], has_more: false })
+        text: () => Promise.resolve(JSON.stringify({ items: [], has_more: false }))
       });
 
       const meta = await client.getNoteMetadata("real-id");
@@ -233,19 +234,13 @@ describe("JoplinClient", () => {
     });
 
     it("listNotes returns empty array if notebook name not found", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ items: [{ id: "nb1", title: "Notebook 1" }], has_more: false })
-      });
+      mockResponse({ items: [{ id: "nb1", title: "Notebook 1" }], has_more: false });
       const notes = await client.listNotes("Missing Notebook");
       expect(notes).toEqual([]);
     });
 
     it("listNotesByTag returns empty array if tag not found", async () => {
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ items: [{ id: "t1", title: "tag1" }], has_more: false })
-      });
+      mockResponse({ items: [{ id: "t1", title: "tag1" }], has_more: false });
       const notes = await client.listNotesByTag("missing tag");
       expect(notes).toEqual([]);
     });
@@ -292,6 +287,30 @@ describe("JoplinClient", () => {
         expect.arrayContaining(["--profile", "/tmp/test-profile", "server", "start"]),
         expect.any(Object)
       );
+    });
+
+    it("addTagToNote creates tag if missing", async () => {
+      // 1: fetch notes
+      mockResponse({ items: [{ id: "n1", title: "Note 1" }], has_more: false });
+      // 2: fetch tags
+      mockResponse({ items: [{ id: "t1", title: "tag1" }], has_more: false });
+      // 3: create tag
+      mockResponse({ id: "t2", title: "tag2" });
+      // 4: link tag
+      mockResponse({});
+
+      await client.addTagToNote("tag2", "n1");
+      expect(mockFetch.mock.calls[2][0]).toContain("/tags");
+      expect(mockFetch.mock.calls[3][0]).toContain("/tags/t2/notes");
+    });
+
+    it("removeTagFromNote throws if tag missing", async () => {
+      // 1: fetch notes
+      mockResponse({ items: [{ id: "n1", title: "Note 1" }], has_more: false });
+      // 2: fetch tags
+      mockResponse({ items: [{ id: "t1", title: "tag1" }], has_more: false });
+
+      await expect(client.removeTagFromNote("missing", "n1")).rejects.toThrow("Tag 'missing' not found");
     });
   });
 });

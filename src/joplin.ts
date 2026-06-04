@@ -128,23 +128,39 @@ export class JoplinClient {
     });
   }
 
-  private async request<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
+  private async request<T>(endpoint: string, params: Record<string, string> = {}, body?: any): Promise<T> {
     if (!this.apiToken) {
       throw new Error("Client not initialized. Call init() first.");
     }
 
     const url = new URL(`http://localhost:${this.port}${endpoint}`);
     url.searchParams.append("token", this.apiToken);
-    for (const [k, v] of Object.entries(params)) {
-      url.searchParams.append(k, v);
+    
+    // params are query string arguments or fetch options
+    const fetchOpts: any = { ...params };
+    
+    if (params.fields) {
+      url.searchParams.append("fields", params.fields);
+      delete fetchOpts.fields;
+    }
+    if (params.page) {
+      url.searchParams.append("page", params.page);
+      delete fetchOpts.page;
     }
 
-    const res = await fetch(url.toString());
+    if (body) {
+      fetchOpts.body = JSON.stringify(body);
+      fetchOpts.headers = { ...fetchOpts.headers, "Content-Type": "application/json" };
+    }
+
+    const res = await fetch(url.toString(), fetchOpts);
     if (!res.ok) {
       throw new Error(`Joplin API Error: ${res.status} ${res.statusText}`);
     }
 
-    return await res.json() as T;
+    const text = await res.text();
+    if (!text) return {} as T;
+    return JSON.parse(text) as T;
   }
 
   // Iterate over paginated items using 'has_more' and 'page'
@@ -230,5 +246,46 @@ export class JoplinClient {
     metadata.tags = await this.getNoteTags(noteId);
     
     return metadata;
+  }
+
+  async addTagToNote(tagIdOrName: string, noteIdOrName: string): Promise<void> {
+    let noteId = noteIdOrName;
+    const allNotes = await this.fetchAll<any>("/notes");
+    const noteMatch = allNotes.find(n => n.id === noteIdOrName || n.title === noteIdOrName);
+    if (noteMatch) {
+      noteId = noteMatch.id;
+    }
+
+    const allTags = await this.fetchAll<any>("/tags");
+    let tagMatch = allTags.find(t => t.id === tagIdOrName || t.title === tagIdOrName);
+    
+    // If the tag doesn't exist, create it first
+    if (!tagMatch) {
+      tagMatch = await this.request<any>("/tags", { method: "POST" }, { title: tagIdOrName });
+    }
+    
+    const tagId = tagMatch.id;
+
+    await this.request<any>(`/tags/${tagId}/notes`, { method: "POST" }, { id: noteId });
+  }
+
+  async removeTagFromNote(tagIdOrName: string, noteIdOrName: string): Promise<void> {
+    let noteId = noteIdOrName;
+    const allNotes = await this.fetchAll<any>("/notes");
+    const noteMatch = allNotes.find(n => n.id === noteIdOrName || n.title === noteIdOrName);
+    if (noteMatch) {
+      noteId = noteMatch.id;
+    }
+
+    const allTags = await this.fetchAll<any>("/tags");
+    const tagMatch = allTags.find(t => t.id === tagIdOrName || t.title === tagIdOrName);
+    
+    if (!tagMatch) {
+      throw new Error(`Tag '${tagIdOrName}' not found`);
+    }
+    
+    const tagId = tagMatch.id;
+
+    await this.request<any>(`/tags/${tagId}/notes/${noteId}`, { method: "DELETE" });
   }
 }

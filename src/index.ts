@@ -2,11 +2,34 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { JoplinClient } from "./joplin";
 import { truncateHead, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from "@earendil-works/pi-coding-agent";
+import * as fsPromises from "fs/promises";
+import * as path from "path";
+import * as os from "os";
+
+const GLOBAL_ALLOWLIST_PATH = path.join(os.homedir(), ".pi", "agent", "joplin-allowlist.json");
+
+async function getGlobalAllowlist(): Promise<string[]> {
+  try {
+    const data = await fsPromises.readFile(GLOBAL_ALLOWLIST_PATH, "utf8");
+    return JSON.parse(data);
+  } catch {
+    return [];
+  }
+}
+
+async function addGlobalAllowlist(toolName: string) {
+  const list = await getGlobalAllowlist();
+  if (!list.includes(toolName)) {
+    list.push(toolName);
+    await fsPromises.mkdir(path.dirname(GLOBAL_ALLOWLIST_PATH), { recursive: true });
+    await fsPromises.writeFile(GLOBAL_ALLOWLIST_PATH, JSON.stringify(list, null, 2));
+  }
+}
 
 export default function (pi: ExtensionAPI) {
   let client = new JoplinClient(process.env.JOPLIN_PROFILE_PATH);
 
-  let myConfig: { profilePath?: string, apiToken?: string } = {};
+  let myConfig: { profilePath?: string, apiToken?: string, allowedTools?: string[] } = {};
 
   // Re-initialize client if settings change
   async function reloadClient() {
@@ -31,6 +54,58 @@ export default function (pi: ExtensionAPI) {
       }
     }
     await reloadClient();
+  });
+
+  pi.on("tool_call", async (event, ctx) => {
+    // 1. Allow read-only tools to bypass HIL automatically
+    const readOnlyTools = [
+      "joplin_list_notebooks", 
+      "joplin_list_tags", 
+      "joplin_list_notes", 
+      "joplin_read_note", 
+      "joplin_get_note_metadata"
+    ];
+    
+    if (readOnlyTools.includes(event.toolName)) {
+      return; // Proceed normally without prompting
+    }
+
+    // 2. Check Session Allowlist
+    if (myConfig.allowedTools?.includes(event.toolName)) {
+      return;
+    }
+
+    // 3. Check Global Allowlist
+    const globalAllowlist = await getGlobalAllowlist();
+    if (globalAllowlist.includes(event.toolName)) {
+      return;
+    }
+
+    // 4. Intercept modifying/destructive tools
+    if (event.toolName.startsWith("joplin_")) {
+      const actionDesc = `${event.toolName.replace("joplin_", "").replace(/_/g, " ")}\nArgs: ${JSON.stringify(event.input)}`;
+
+      // Prompt the user in the Terminal UI
+      const choice = await ctx.ui.select(
+        `Joplin Modification Requested: ${actionDesc}\nAllow?`,
+        ["No", "Once", "Session", "Always"]
+      );
+
+      // If the user clicks "No" or hits Escape, block the tool
+      if (!choice || choice === "No") {
+        return { block: true, reason: "The user denied permission for this action." };
+      }
+
+      if (choice === "Session") {
+        myConfig.allowedTools = myConfig.allowedTools || [];
+        myConfig.allowedTools.push(event.toolName);
+        pi.appendEntry("joplin-config", myConfig);
+      } else if (choice === "Always") {
+        await addGlobalAllowlist(event.toolName);
+      }
+      
+      // "Once" does nothing extra, just returns.
+    }
   });
 
   pi.registerCommand("joplin-config", {
@@ -162,6 +237,39 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  pi.registerTool({
+    name: "joplin_add_tag_to_note",
+    label: "Add Tag to Note",
+    description: "Add a tag to a note by its exact ID or title. Requires Human-in-the-Loop approval.",
+    parameters: Type.Object({
+      note: Type.String({ description: "Note ID or title to tag" }),
+      tag: Type.String({ description: "Tag ID or title to add" }),
+    }),
+    async execute(_id, params) {
+      await client.addTagToNote(params.tag, params.note);
+      return {
+        content: [{ type: "text", text: `Successfully added tag '${params.tag}' to note '${params.note}'` }],
+        details: {},
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "joplin_remove_tag_from_note",
+    label: "Remove Tag from Note",
+    description: "Remove a tag from a note by its exact ID or title. Requires Human-in-the-Loop approval.",
+    parameters: Type.Object({
+      note: Type.String({ description: "Note ID or title" }),
+      tag: Type.String({ description: "Tag ID or title to remove" }),
+    }),
+    async execute(_id, params) {
+      await client.removeTagFromNote(params.tag, params.note);
+      return {
+        content: [{ type: "text", text: `Successfully removed tag '${params.tag}' from note '${params.note}'` }],
+        details: {},
+      };
+    },
+  });
   pi.registerTool({
     name: "joplin_get_note_metadata",
     label: "Get Note Metadata",

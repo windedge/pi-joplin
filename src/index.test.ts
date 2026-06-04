@@ -5,8 +5,15 @@ jest.mock("@earendil-works/pi-coding-agent", () => ({
   DEFAULT_MAX_LINES: 100
 }), { virtual: true });
 
+jest.mock("fs/promises", () => ({
+  readFile: jest.fn().mockRejectedValue(new Error("Not found")),
+  writeFile: jest.fn().mockResolvedValue(undefined),
+  mkdir: jest.fn().mockResolvedValue(undefined),
+}));
+
 import initExtension from "./index";
 import { JoplinClient } from "./joplin";
+import * as fsPromises from "fs/promises";
 
 jest.mock("./joplin");
 
@@ -19,7 +26,7 @@ describe("Extension", () => {
       appendEntry: jest.fn(),
     };
     initExtension(mockPi as any);
-    expect(mockPi.registerTool).toHaveBeenCalledTimes(5);
+    expect(mockPi.registerTool).toHaveBeenCalledTimes(7);
     
     const registeredTools = mockPi.registerTool.mock.calls.map(call => call[0].name);
     expect(registeredTools).toContain("joplin_list_notebooks");
@@ -27,6 +34,8 @@ describe("Extension", () => {
     expect(registeredTools).toContain("joplin_list_notes");
     expect(registeredTools).toContain("joplin_read_note");
     expect(registeredTools).toContain("joplin_get_note_metadata");
+    expect(registeredTools).toContain("joplin_add_tag_to_note");
+    expect(registeredTools).toContain("joplin_remove_tag_from_note");
 
     // Call execute on joplin_list_notebooks to get branch coverage
     const listNotebooksTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_list_notebooks")[0];
@@ -65,6 +74,74 @@ describe("Extension", () => {
     const getMetadataTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_get_note_metadata")[0];
     (JoplinClient.prototype.getNoteMetadata as jest.Mock).mockResolvedValue({ id: "1" });
     await getMetadataTool.execute("id", { note: "note" });
+    
+    // Call execute on joplin_add_tag_to_note
+    const addTagTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_add_tag_to_note")[0];
+    (JoplinClient.prototype.addTagToNote as jest.Mock).mockResolvedValue(undefined);
+    await addTagTool.execute("id", { note: "note", tag: "tag" });
+
+    // Call execute on joplin_remove_tag_from_note
+    const removeTagTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_remove_tag_from_note")[0];
+    (JoplinClient.prototype.removeTagFromNote as jest.Mock).mockResolvedValue(undefined);
+    await removeTagTool.execute("id", { note: "note", tag: "tag" });
+  });
+
+  it("handles tool_call event for HIL approval", async () => {
+    const mockPi = {
+      registerTool: jest.fn(),
+      registerCommand: jest.fn(),
+      on: jest.fn(),
+      appendEntry: jest.fn(),
+    };
+    initExtension(mockPi as any);
+    
+    const toolCallHandler = mockPi.on.mock.calls.find(call => call[0] === "tool_call")[1];
+    
+    // Read-only tools bypass
+    const bypassResult = await toolCallHandler({ toolName: "joplin_list_notes", input: {} }, {});
+    expect(bypassResult).toBeUndefined();
+
+    // HIL tool allowed Once
+    const mockCtxAllow = { ui: { select: jest.fn().mockResolvedValue("Once") } };
+    const allowResult = await toolCallHandler({ toolName: "joplin_add_tag_to_note", input: { note: "n1", tag: "t1" } }, mockCtxAllow);
+    expect(allowResult).toBeUndefined();
+    expect(mockCtxAllow.ui.select).toHaveBeenCalled();
+
+    // HIL tool allowed Session
+    const mockCtxSession = { ui: { select: jest.fn().mockResolvedValue("Session") } };
+    const sessionResult = await toolCallHandler({ toolName: "joplin_add_tag_to_note", input: { note: "n1", tag: "t1" } }, mockCtxSession);
+    expect(sessionResult).toBeUndefined();
+    expect(mockPi.appendEntry).toHaveBeenCalled();
+
+    // Re-verify session allowedtools seamlessly
+    const sessionBypassResult = await toolCallHandler({ toolName: "joplin_add_tag_to_note", input: { note: "n1", tag: "t1" } }, mockCtxSession);
+    expect(sessionBypassResult).toBeUndefined();
+
+    // HIL tool allowed Always (handled partially by mock behavior testing UI interaction)
+    (fsPromises.readFile as jest.Mock).mockRejectedValueOnce(new Error("missing"));
+    const mockCtxAlways = { ui: { select: jest.fn().mockResolvedValue("Always") } };
+    const alwaysResult = await toolCallHandler({ toolName: "joplin_remove_tag_from_note", input: { note: "n1", tag: "t1" } }, mockCtxAlways);
+    expect(alwaysResult).toBeUndefined();
+    expect(fsPromises.writeFile).toHaveBeenCalled();
+
+    // Re-verify that after "Always", a future call bypasses seamlessly
+    (fsPromises.readFile as jest.Mock).mockResolvedValueOnce(JSON.stringify(["joplin_remove_tag_from_note"]));
+    const allowlistBypassResult = await toolCallHandler({ toolName: "joplin_remove_tag_from_note", input: { note: "n1", tag: "t1" } }, mockCtxAlways);
+    expect(allowlistBypassResult).toBeUndefined();
+
+    // HIL tool blocked by No
+    const mockCtxBlock = { ui: { select: jest.fn().mockResolvedValue("No") } };
+    const blockResult = await toolCallHandler({ toolName: "joplin_remove_tag_from_note", input: { note: "n1", tag: "t1" } }, mockCtxBlock);
+    expect(blockResult).toEqual({ block: true, reason: expect.any(String) });
+
+    // HIL tool blocked by Escape (undefined)
+    const mockCtxCancel = { ui: { select: jest.fn().mockResolvedValue(undefined) } };
+    const cancelResult = await toolCallHandler({ toolName: "joplin_remove_tag_from_note", input: { note: "n1", tag: "t1" } }, mockCtxCancel);
+    expect(cancelResult).toEqual({ block: true, reason: expect.any(String) });
+    
+    // Ignored tools (non-joplin)
+    const ignoreResult = await toolCallHandler({ toolName: "bash", input: {} }, {});
+    expect(ignoreResult).toBeUndefined();
   });
 
   it("registers config command and event listener", async () => {

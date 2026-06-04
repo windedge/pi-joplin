@@ -11,9 +11,6 @@ export default tseslint.config(
         ...globals.node,
         ...globals.jest,
       },
-      parserOptions: {
-        project: true,
-      },
     },
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',

@@ -1,12 +1,13 @@
 # pi-joplin
 
-A pi extension that provides read-only access to Joplin notes.
+A pi extension that provides interactive access to Joplin notes.
 
 ## Features
-- List all notebooks
+- List all notebooks and tags
 - List notes (all notes or filtered by notebook/tag)
 - Read individual notes
 - Get metadata for a specific note (e.g. parent_id, is_todo, created_time, tags, etc.)
+- Add or remove tags from notes (Requires Human-in-the-Loop interactive confirmation)
 
 ## Installation
 

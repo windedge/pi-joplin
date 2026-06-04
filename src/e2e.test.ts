@@ -102,4 +102,21 @@ describe("JoplinClient E2E", () => {
     expect(metadata.parent_id).toBeDefined();
     expect(metadata.tags).toEqual(["e2etag"]);
   });
+
+  it("adds and removes tags", async () => {
+    // Note 2 currently has no tags
+    await client.addTagToNote("e2etag", "E2E Note 2");
+    let meta = await client.getNoteMetadata("E2E Note 2");
+    expect(meta.tags).toEqual(["e2etag"]);
+
+    // Create a brand new tag dynamically
+    await client.addTagToNote("new-dynamic-tag", "E2E Note 2");
+    meta = await client.getNoteMetadata("E2E Note 2");
+    expect(meta.tags).toContain("new-dynamic-tag");
+
+    // Remove the original tag
+    await client.removeTagFromNote("e2etag", "E2E Note 2");
+    meta = await client.getNoteMetadata("E2E Note 2");
+    expect(meta.tags).toEqual(["new-dynamic-tag"]);
+  });
 });
