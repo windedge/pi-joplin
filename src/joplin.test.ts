@@ -163,7 +163,7 @@ describe("JoplinClient", () => {
       });
       
       const notes = await client.listNotes("Notebook 1");
-      expect(notes.notes).toEqual([{ id: "n1", title: "Note 1" }]);
+      expect(notes.notes).toEqual([{ id: "n1", title: "Note 1", icon: "🗎" }]);
       expect(mockFetch.mock.calls[1][0]).toContain("/folders/nb1/notes");
     });
 
@@ -188,7 +188,7 @@ describe("JoplinClient", () => {
       });
 
       const notes = await client.listNotesByTag("mytag");
-      expect(notes.notes).toEqual([{ id: "n1", title: "Note 1" }]);
+      expect(notes.notes).toEqual([{ id: "n1", title: "Note 1", icon: "🗎" }]);
       expect(mockFetch.mock.calls[1][0]).toContain("/tags/t1/notes");
     });
 

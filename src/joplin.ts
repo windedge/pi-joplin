@@ -224,6 +224,11 @@ export class JoplinClient {
       notes = notes.filter(n => !(n.is_todo && n.todo_completed));
     }
 
+    notes = notes.map(n => {
+      n.icon = (!n.is_todo) ? "🗎" : (n.todo_completed ? "🗹" : "☐");
+      return n;
+    });
+
     return { notes, has_more: res.has_more };
   }
 
@@ -245,6 +250,11 @@ export class JoplinClient {
       // "all" - default: exclude completed todos unless explicitly requested
       notes = notes.filter(n => !(n.is_todo && n.todo_completed));
     }
+
+    notes = notes.map(n => {
+      n.icon = (!n.is_todo) ? "🗎" : (n.todo_completed ? "🗹" : "☐");
+      return n;
+    });
 
     return { notes, has_more: res.has_more };
   }
