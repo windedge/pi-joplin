@@ -107,9 +107,12 @@ describe("JoplinClient", () => {
     };
 
     it("listNotebooks", async () => {
-      mockResponse({ items: [{ id: "nb1", title: "Notebook 1" }], has_more: false });
+      mockResponse({ items: [{ id: "nb1", title: "Notebook 1" }, { id: "nb2", title: "Notebook 2", icon: "🚀" }], has_more: false });
       const nbs = await client.listNotebooks();
-      expect(nbs).toEqual([{ id: "nb1", title: "Notebook 1" }]);
+      expect(nbs).toEqual([
+        { id: "nb1", title: "Notebook 1", icon: "🖿" },
+        { id: "nb2", title: "Notebook 2", icon: "🚀" }
+      ]);
     });
 
     it("listNotes (all)", async () => {

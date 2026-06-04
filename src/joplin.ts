@@ -185,7 +185,15 @@ export class JoplinClient {
   }
 
   async listNotebooks(): Promise<any[]> {
-    return await this.fetchAll("/folders");
+    const notebooks = await this.fetchAll<any>("/folders", { fields: "id,title,parent_id,icon" });
+    return notebooks.map(n => {
+      // If it doesn't have an icon or the icon is empty, use '🖿' (U+1F5BF)
+      // We also check that the icon is likely a unicode string and not a data URI
+      if (!n.icon || n.icon.startsWith("data:")) {
+        n.icon = "🖿";
+      }
+      return n;
+    });
   }
 
   async listTags(): Promise<any[]> {
