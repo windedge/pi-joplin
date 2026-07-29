@@ -1,7 +1,7 @@
 {
   "name": "pi-joplin",
   "version": "1.0.0",
-  "description": "A pi extension providing read-only access to Joplin notes",
+  "description": "A pi extension providing scoped interactive access to Joplin notes",
   "main": "dist/index.js",
   "pi": {
     "extensions": ["dist/index.js"]

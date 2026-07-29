@@ -397,6 +397,24 @@ describe("JoplinClient", () => {
       expect(mockFetch.mock.calls[1][0]).toContain("/notes");
     });
 
+    it("createNote applies tags after create", async () => {
+      mockResponse({ id: "new-note" });
+      // addTagToNote: fetch notes, fetch tags, create tag, link
+      mockResponse({ items: [{ id: "new-note", title: "New Note", parent_id: "nb1" }], has_more: false });
+      mockResponse({ items: [], has_more: false });
+      mockResponse({ id: "tag-ai", title: "AI-Generated" });
+      mockResponse({});
+
+      const result = await client.createNote({
+        title: "New Note",
+        type: "note",
+        tags: ["AI-Generated"],
+      });
+
+      expect(result.id).toBe("new-note");
+      expect(mockFetch.mock.calls.some((c) => String(c[0]).includes("/tags"))).toBe(true);
+    });
+
     it("createNote throws if notebook missing", async () => {
       mockResponse({ items: [{ id: "nb1", title: "Notebook 1" }], has_more: false });
       await expect(client.createNote({
@@ -434,6 +452,132 @@ describe("JoplinClient", () => {
 
       await client.setTodoCompletion("Note 1", false);
       expect(mockFetch.mock.calls[1][0]).toContain("/notes/n1");
+    });
+
+    describe("notebook scope", () => {
+      it("filters listNotebooks to allowed ids", async () => {
+        client.setScope(new Set(["nb1"]), "Work (nb1)");
+        mockResponse({
+          items: [
+            { id: "nb1", title: "Work" },
+            { id: "nb2", title: "Secret" },
+          ],
+          has_more: false,
+        });
+        const nbs = await client.listNotebooks();
+        expect(nbs.map((n: any) => n.id)).toEqual(["nb1"]);
+      });
+
+      it("listNotes silently returns empty for out-of-scope notebook", async () => {
+        client.setScope(new Set(["nb1"]), "Work (nb1)");
+        mockResponse({ items: [{ id: "nb2", title: "Secret" }], has_more: false });
+        const notes = await client.listNotes("Secret");
+        expect(notes.notes).toEqual([]);
+      });
+
+      it("listNotes filters global listing by parent_id", async () => {
+        client.setScope(new Set(["nb1"]), "Work (nb1)");
+        mockResponse({
+          items: [
+            { id: "n1", title: "In", parent_id: "nb1" },
+            { id: "n2", title: "Out", parent_id: "nb2" },
+          ],
+          has_more: false,
+        });
+        const notes = await client.listNotes();
+        expect(notes.notes.map((n: any) => n.id)).toEqual(["n1"]);
+      });
+
+      it("listNotesByTag filters by parent_id", async () => {
+        client.setScope(new Set(["nb1"]), "Work (nb1)");
+        mockResponse({ items: [{ id: "t1", title: "mytag" }], has_more: false });
+        mockResponse({
+          items: [
+            { id: "n1", title: "In", parent_id: "nb1" },
+            { id: "n2", title: "Out", parent_id: "nb2" },
+          ],
+          has_more: false,
+        });
+        const notes = await client.listNotesByTag("mytag");
+        expect(notes.notes.map((n: any) => n.id)).toEqual(["n1"]);
+      });
+
+      it("readNote throws for out-of-scope note", async () => {
+        client.setScope(new Set(["nb1"]), "Work (nb1)");
+        mockResponse({
+          items: [{ id: "n2", title: "Secret Note", parent_id: "nb2" }],
+          has_more: false,
+        });
+        await expect(client.readNote("Secret Note")).rejects.toThrow("outside the allowed notebook scope");
+      });
+
+      it("createNote requires notebook when scoped", async () => {
+        client.setScope(new Set(["nb1"]), "Work (nb1)");
+        await expect(
+          client.createNote({ title: "X", type: "note" })
+        ).rejects.toThrow("notebook is required");
+      });
+
+      it("createNote throws when destination notebook is out of scope", async () => {
+        client.setScope(new Set(["nb1"]), "Work (nb1)");
+        mockResponse({ items: [{ id: "nb2", title: "Secret" }], has_more: false });
+        await expect(
+          client.createNote({ title: "X", type: "note", notebookIdOrName: "Secret" })
+        ).rejects.toThrow("outside the allowed notebook scope");
+      });
+
+      it("moveNote throws when destination is out of scope", async () => {
+        client.setScope(new Set(["nb1"]), "Work (nb1)");
+        mockResponse({
+          items: [{ id: "n1", title: "Note 1", parent_id: "nb1" }],
+          has_more: false,
+        });
+        mockResponse({
+          items: [
+            { id: "nb1", title: "Work" },
+            { id: "nb2", title: "Secret" },
+          ],
+          has_more: false,
+        });
+        await expect(client.moveNote("n1", "Secret")).rejects.toThrow(
+          "outside the allowed notebook scope"
+        );
+      });
+
+      it("fail-closed empty scope denies list and read", async () => {
+        client.setScope(new Set(), "fail-closed: none");
+        mockResponse({ items: [{ id: "nb1", title: "Work" }], has_more: false });
+        expect(await client.listNotebooks()).toEqual([]);
+
+        mockResponse({
+          items: [{ id: "n1", title: "Note 1", parent_id: "nb1" }],
+          has_more: false,
+        });
+        await expect(client.readNote("Note 1")).rejects.toThrow("outside the allowed notebook scope");
+      });
+
+      it("readNote allows in-scope note and exposes scope helpers", async () => {
+        client.setScope(new Set(["nb1"]), "Work (nb1)");
+        expect(client.isScoped()).toBe(true);
+        expect(client.getScopeSummary()).toBe("Work (nb1)");
+
+        mockResponse({
+          items: [{ id: "n1", title: "Note 1", parent_id: "nb1" }],
+          has_more: false,
+        });
+        mockResponse({ body: "hello" });
+        await expect(client.readNote("Note 1")).resolves.toBe("hello");
+      });
+
+      it("resolveNote via direct id when not in list but in scope", async () => {
+        client.setScope(new Set(["nb1"]), "Work (nb1)");
+        // list has no matching note
+        mockResponse({ items: [], has_more: false });
+        // direct fetch by id
+        mockResponse({ id: "direct", title: "D", parent_id: "nb1" });
+        mockResponse({ body: "body" });
+        await expect(client.readNote("direct")).resolves.toBe("body");
+      });
     });
   });
 });

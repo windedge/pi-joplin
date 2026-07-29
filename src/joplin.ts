@@ -8,10 +8,47 @@ export class JoplinClient {
   private port: number = 41184; // Default desktop port
   private serverProcess?: ChildProcess;
   public apiLimit?: number; // Used for testing pagination with smaller page sizes
+  /** null = unrestricted; empty Set = fail-closed deny-all */
+  private allowedNotebookIds: Set<string> | null = null;
+  private scopeSummary: string = "unrestricted";
 
   constructor(private profilePath?: string, private forceHeadlessPort?: number) {
     if (forceHeadlessPort) {
       this.port = forceHeadlessPort;
+    }
+  }
+
+  /**
+   * Restrict access to the given notebook IDs (already expanded to include descendants).
+   * Pass null for unrestricted access.
+   */
+  setScope(allowedNotebookIds: Set<string> | null, summary: string = "unrestricted") {
+    this.allowedNotebookIds = allowedNotebookIds;
+    this.scopeSummary = summary;
+  }
+
+  getScopeSummary(): string {
+    return this.scopeSummary;
+  }
+
+  isScoped(): boolean {
+    return this.allowedNotebookIds !== null;
+  }
+
+  private scopeError(what: string): Error {
+    return new Error(
+      `${what} is outside the allowed notebook scope. Effective scope: ${this.scopeSummary}`
+    );
+  }
+
+  private isNotebookAllowed(notebookId: string): boolean {
+    if (this.allowedNotebookIds === null) return true;
+    return this.allowedNotebookIds.has(notebookId);
+  }
+
+  private assertNotebookAllowed(notebookId: string, what: string) {
+    if (!this.isNotebookAllowed(notebookId)) {
+      throw this.scopeError(what);
     }
   }
 
@@ -191,7 +228,8 @@ export class JoplinClient {
     return allItems;
   }
 
-  async listNotebooks(): Promise<any[]> {
+  /** Unfiltered notebook list (for scope resolution / config UI). */
+  async listAllNotebooks(): Promise<any[]> {
     const notebooks = await this.fetchAll<any>("/folders", { fields: "id,title,parent_id,icon" });
     return notebooks.map(n => {
       // If it doesn't have an icon or the icon is empty, use '🖿' (U+1F5BF)
@@ -203,24 +241,35 @@ export class JoplinClient {
     });
   }
 
+  async listNotebooks(): Promise<any[]> {
+    const notebooks = await this.listAllNotebooks();
+    if (this.allowedNotebookIds === null) return notebooks;
+    return notebooks.filter(n => this.allowedNotebookIds!.has(n.id));
+  }
+
   async listTags(): Promise<any[]> {
     return await this.fetchAll("/tags");
   }
 
   async listNotes(notebookIdOrName?: string, type?: "all" | "notes" | "todos" | "completed_todos", page: number = 1): Promise<{ notes: any[], has_more: boolean }> {
     let res;
-    const fields = "id,title,is_todo,todo_completed";
+    const fields = "id,title,is_todo,todo_completed,parent_id";
     
     if (notebookIdOrName) {
-      // Check if it's an ID or a Name
+      // Check if it's an ID or a Name (search unscoped tree so we can silently filter out-of-scope)
       let notebookId = notebookIdOrName;
       
-      const notebooks = await this.listNotebooks();
+      const notebooks = await this.listAllNotebooks();
       const match = notebooks.find(n => n.id === notebookIdOrName || n.title === notebookIdOrName);
       if (match) {
         notebookId = match.id;
       } else if (!notebooks.find(n => n.id === notebookIdOrName)) {
         return { notes: [], has_more: false }; // Not found
+      }
+
+      // List filter: out-of-scope notebook => empty result
+      if (!this.isNotebookAllowed(notebookId)) {
+        return { notes: [], has_more: false };
       }
 
       res = await this.fetchPage<any>(`/folders/${notebookId}/notes`, page, { fields });
@@ -230,6 +279,11 @@ export class JoplinClient {
     // console.log("FETCH PAGE RETURNED:", res.items.length, "HAS MORE:", res.has_more);
 
     let notes = res.items;
+
+    // Scope filter for global listing
+    if (this.allowedNotebookIds !== null) {
+      notes = notes.filter(n => this.allowedNotebookIds!.has(n.parent_id));
+    }
 
     // The REST API sometimes returns 0/1 instead of booleans
     const isTodo = (n: any) => n.is_todo === 1 || n.is_todo === true;
@@ -259,9 +313,13 @@ export class JoplinClient {
     const tag = tags.find(t => t.title === tagName);
     if (!tag) return { notes: [], has_more: false };
 
-    const fields = "id,title,is_todo,todo_completed";
+    const fields = "id,title,is_todo,todo_completed,parent_id";
     const res = await this.fetchPage<any>(`/tags/${tag.id}/notes`, page, { fields });
     let notes = res.items;
+
+    if (this.allowedNotebookIds !== null) {
+      notes = notes.filter(n => this.allowedNotebookIds!.has(n.parent_id));
+    }
 
     // The REST API sometimes returns 0/1 instead of booleans
     const isTodo = (n: any) => n.is_todo === 1 || n.is_todo === true;
@@ -286,16 +344,58 @@ export class JoplinClient {
     return { notes, has_more: res.has_more };
   }
 
-  async readNote(noteIdOrName: string): Promise<string> {
-    let noteId = noteIdOrName;
-    const allNotes = await this.fetchAll<any>("/notes");
-    const match = allNotes.find(n => n.id === noteIdOrName || n.title === noteIdOrName);
-    
-    if (match) {
-      noteId = match.id;
+  /**
+   * Resolve a note by id or title and enforce notebook scope for single-item ops.
+   * Title matches prefer in-scope notes when scoped.
+   */
+  private async resolveNote(noteIdOrName: string): Promise<{ id: string; parent_id: string; title?: string }> {
+    const allNotes = await this.fetchAll<any>("/notes", { fields: "id,title,parent_id" });
+
+    if (this.allowedNotebookIds !== null) {
+      const inScope = allNotes.filter((n: any) => this.allowedNotebookIds!.has(n.parent_id));
+      const scopedMatch = inScope.find((n: any) => n.id === noteIdOrName || n.title === noteIdOrName);
+      if (scopedMatch) {
+        return { id: scopedMatch.id, parent_id: scopedMatch.parent_id, title: scopedMatch.title };
+      }
+
+      const anyMatch = allNotes.find((n: any) => n.id === noteIdOrName || n.title === noteIdOrName);
+      if (anyMatch) {
+        throw this.scopeError(`Note '${noteIdOrName}'`);
+      }
+
+      // Direct id fetch path: load parent_id and check scope
+      try {
+        const direct = await this.request<any>(`/notes/${noteIdOrName}`, { fields: "id,title,parent_id" });
+        if (direct && direct.id) {
+          this.assertNotebookAllowed(direct.parent_id, `Note '${noteIdOrName}'`);
+          return { id: direct.id, parent_id: direct.parent_id, title: direct.title };
+        }
+      } catch {
+        // fall through
+      }
+
+      throw this.scopeError(`Note '${noteIdOrName}'`);
     }
 
-    const note = await this.request<any>(`/notes/${noteId}`, { fields: "body" });
+    const match = allNotes.find((n: any) => n.id === noteIdOrName || n.title === noteIdOrName);
+    if (match) {
+      return { id: match.id, parent_id: match.parent_id, title: match.title };
+    }
+    return { id: noteIdOrName, parent_id: "" };
+  }
+
+  private async resolveNotebookId(notebookIdOrName: string): Promise<string> {
+    const notebooks = await this.listAllNotebooks();
+    const match = notebooks.find(n => n.id === notebookIdOrName || n.title === notebookIdOrName);
+    if (!match) {
+      throw new Error(`Notebook '${notebookIdOrName}' not found`);
+    }
+    return match.id;
+  }
+
+  async readNote(noteIdOrName: string): Promise<string> {
+    const resolved = await this.resolveNote(noteIdOrName);
+    const note = await this.request<any>(`/notes/${resolved.id}`, { fields: "body" });
     return note.body;
   }
 
@@ -305,28 +405,22 @@ export class JoplinClient {
   }
 
   async getNoteMetadata(noteIdOrName: string): Promise<Record<string, any>> {
-    let noteId = noteIdOrName;
-    const allNotes = await this.fetchAll<any>("/notes");
-    const match = allNotes.find(n => n.id === noteIdOrName || n.title === noteIdOrName);
-    
-    if (match) {
-      noteId = match.id;
-    }
+    const resolved = await this.resolveNote(noteIdOrName);
 
     const fields = "id,parent_id,title,is_todo,todo_due,todo_completed,created_time,updated_time,source_url,source_application,latitude,longitude,altitude,author";
-    const metadata = await this.request<Record<string, any>>(`/notes/${noteId}`, { fields });
-    metadata.tags = await this.getNoteTags(noteId);
+    const metadata = await this.request<Record<string, any>>(`/notes/${resolved.id}`, { fields });
+    // Enforce scope using authoritative parent_id from the note record
+    if (metadata.parent_id) {
+      this.assertNotebookAllowed(metadata.parent_id, `Note '${noteIdOrName}'`);
+    }
+    metadata.tags = await this.getNoteTags(resolved.id);
     
     return metadata;
   }
 
   async addTagToNote(tagIdOrName: string, noteIdOrName: string): Promise<void> {
-    let noteId = noteIdOrName;
-    const allNotes = await this.fetchAll<any>("/notes");
-    const noteMatch = allNotes.find(n => n.id === noteIdOrName || n.title === noteIdOrName);
-    if (noteMatch) {
-      noteId = noteMatch.id;
-    }
+    const resolved = await this.resolveNote(noteIdOrName);
+    const noteId = resolved.id;
 
     const allTags = await this.fetchAll<any>("/tags");
     let tagMatch = allTags.find(t => t.id === tagIdOrName || t.title === tagIdOrName);
@@ -342,12 +436,8 @@ export class JoplinClient {
   }
 
   async removeTagFromNote(tagIdOrName: string, noteIdOrName: string): Promise<void> {
-    let noteId = noteIdOrName;
-    const allNotes = await this.fetchAll<any>("/notes");
-    const noteMatch = allNotes.find(n => n.id === noteIdOrName || n.title === noteIdOrName);
-    if (noteMatch) {
-      noteId = noteMatch.id;
-    }
+    const resolved = await this.resolveNote(noteIdOrName);
+    const noteId = resolved.id;
 
     const allTags = await this.fetchAll<any>("/tags");
     const tagMatch = allTags.find(t => t.id === tagIdOrName || t.title === tagIdOrName);
@@ -362,26 +452,28 @@ export class JoplinClient {
   }
 
   async moveNote(noteIdOrName: string, notebookIdOrName: string): Promise<void> {
-    let noteId = noteIdOrName;
-    const allNotes = await this.fetchAll<any>("/notes");
-    const noteMatch = allNotes.find(n => n.id === noteIdOrName || n.title === noteIdOrName);
-    if (noteMatch) {
-      noteId = noteMatch.id;
-    }
+    const resolved = await this.resolveNote(noteIdOrName);
+    const noteId = resolved.id;
 
-    const allNotebooks = await this.listNotebooks();
-    const notebookMatch = allNotebooks.find(n => n.id === notebookIdOrName || n.title === notebookIdOrName);
-    
-    if (!notebookMatch) {
-      throw new Error(`Notebook '${notebookIdOrName}' not found`);
-    }
-
-    const notebookId = notebookMatch.id;
+    const notebookId = await this.resolveNotebookId(notebookIdOrName);
+    this.assertNotebookAllowed(notebookId, `Destination notebook '${notebookIdOrName}'`);
 
     await this.request<any>(`/notes/${noteId}`, { method: "PUT" }, { parent_id: notebookId });
   }
 
-  async createNote(options: { title: string, type: "note" | "todo", body?: string, notebookIdOrName?: string }): Promise<any> {
+  async createNote(options: {
+    title: string;
+    type: "note" | "todo";
+    body?: string;
+    notebookIdOrName?: string;
+    tags?: string[];
+  }): Promise<any> {
+    if (this.allowedNotebookIds !== null && !options.notebookIdOrName) {
+      throw new Error(
+        `notebook is required when notebook scope is active. Effective scope: ${this.scopeSummary}`
+      );
+    }
+
     const payload: any = {
       title: options.title,
       is_todo: options.type === "todo" ? 1 : 0
@@ -390,23 +482,26 @@ export class JoplinClient {
       payload.body = options.body;
     }
     if (options.notebookIdOrName) {
-      const allNotebooks = await this.listNotebooks();
-      const notebookMatch = allNotebooks.find(n => n.id === options.notebookIdOrName || n.title === options.notebookIdOrName);
-      if (!notebookMatch) {
-        throw new Error(`Notebook '${options.notebookIdOrName}' not found`);
-      }
-      payload.parent_id = notebookMatch.id;
+      const notebookId = await this.resolveNotebookId(options.notebookIdOrName);
+      this.assertNotebookAllowed(notebookId, `Notebook '${options.notebookIdOrName}'`);
+      payload.parent_id = notebookId;
     }
-    return await this.request<any>("/notes", { method: "POST" }, payload);
+    const created = await this.request<any>("/notes", { method: "POST" }, payload);
+
+    if (options.tags && options.tags.length > 0 && created?.id) {
+      for (const tag of options.tags) {
+        if (tag) {
+          await this.addTagToNote(tag, created.id);
+        }
+      }
+    }
+
+    return created;
   }
 
   async editNote(noteIdOrName: string, options: { title?: string, body?: string, type?: "note" | "todo" }): Promise<void> {
-    let noteId = noteIdOrName;
-    const allNotes = await this.fetchAll<any>("/notes");
-    const noteMatch = allNotes.find(n => n.id === noteIdOrName || n.title === noteIdOrName);
-    if (noteMatch) {
-      noteId = noteMatch.id;
-    }
+    const resolved = await this.resolveNote(noteIdOrName);
+    const noteId = resolved.id;
     
     const payload: any = {};
     if (options.title !== undefined) payload.title = options.title;
@@ -419,12 +514,8 @@ export class JoplinClient {
   }
 
   async setTodoCompletion(noteIdOrName: string, completed: boolean): Promise<void> {
-    let noteId = noteIdOrName;
-    const allNotes = await this.fetchAll<any>("/notes");
-    const noteMatch = allNotes.find(n => n.id === noteIdOrName || n.title === noteIdOrName);
-    if (noteMatch) {
-      noteId = noteMatch.id;
-    }
+    const resolved = await this.resolveNote(noteIdOrName);
+    const noteId = resolved.id;
     
     const payload = { todo_completed: completed ? Date.now() : 0 };
     await this.request<any>(`/notes/${noteId}`, { method: "PUT" }, payload);
