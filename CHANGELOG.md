@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-08-01
+
+### Fixed
+- pi startup no longer blocks on Joplin connection: client now initializes lazily on first tool use
+- API requests, ping probes, and headless server startup now have timeouts so hangs fail fast
+
 ## [1.1.0] - 2026-07-29
 
 ### Added
