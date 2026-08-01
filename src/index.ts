@@ -26,6 +26,26 @@ export default function (pi: ExtensionAPI) {
   let myConfig: SessionJoplinConfig = {};
   let effectiveRoots: NotebookRef[] | null = null;
   let scopeFailClosed = false;
+  let clientReady = false;
+  let clientInitPromise: Promise<void> | null = null;
+
+  /** Lazily connect to Joplin and apply scope on first real use. */
+  async function ensureClientReady(): Promise<void> {
+    if (clientReady) return;
+    if (!clientInitPromise) {
+      clientInitPromise = (async () => {
+        try {
+          await client.init();
+          await applyScopeFromConfig();
+          registerAllTools();
+          clientReady = true;
+        } finally {
+          clientInitPromise = null;
+        }
+      })();
+    }
+    await clientInitPromise;
+  }
 
   function scopeDescriptionSuffix(): string {
     if (scopeFailClosed) {
@@ -79,22 +99,28 @@ export default function (pi: ExtensionAPI) {
       myConfig.profilePath || global.profilePath || process.env.JOPLIN_PROFILE_PATH;
 
     client = new JoplinClient(profilePath);
+    clientReady = false;
+    clientInitPromise = null;
     if (myConfig.apiToken) {
       await client.setApiToken(myConfig.apiToken);
     }
 
-    try {
-      await client.init();
-    } catch {
-      // Ignore init errors during background load; tools will throw if not initialized.
-    }
-
-    await applyScopeFromConfig();
+    // Do NOT init or apply scope here: that happens lazily on first tool use.
     registerAllTools();
   }
 
   function persistSessionConfig() {
     pi.appendEntry("joplin-config", myConfig);
+  }
+
+  /** Truncate tool output for the LLM, appending a note when cut off. */
+  function formatForAgent(text: string, extraNote?: string): string {
+    const truncation = truncateHead(text, {
+      maxLines: DEFAULT_MAX_LINES,
+      maxBytes: DEFAULT_MAX_BYTES,
+    });
+    if (!truncation.truncated) return truncation.content;
+    return `${truncation.content}\n\n[Output truncated: ${truncation.outputLines} of ${truncation.totalLines} lines.${extraNote ? " " + extraNote : ""}]`;
   }
 
   async function promptAndSetScope(
@@ -105,9 +131,10 @@ export default function (pi: ExtensionAPI) {
 
     let notebooks: any[];
     try {
+      await ensureClientReady();
       notebooks = await client.listAllNotebooks();
     } catch (err: any) {
-      ctx.ui.notify(`Cannot list notebooks: ${err?.message || err}. Configure connection first.`, "error");
+      ctx.ui.notify(`Cannot connect to Joplin: ${err?.message || err}. Configure connection first.`, "error");
       return false;
     }
 
@@ -192,6 +219,7 @@ export default function (pi: ExtensionAPI) {
       description: "List all notebooks in Joplin" + scopeNote,
       parameters: Type.Object({}),
       async execute() {
+        await ensureClientReady();
         const notebooks = await client.listNotebooks();
         return {
           content: [{ type: "text", text: JSON.stringify(notebooks, null, 2) }],
@@ -206,21 +234,10 @@ export default function (pi: ExtensionAPI) {
       description: "List all tags in Joplin" + scopeNote,
       parameters: Type.Object({}),
       async execute() {
+        await ensureClientReady();
         const tags = await client.listTags();
-
-        const output = JSON.stringify(tags, null, 2);
-        const truncation = truncateHead(output, {
-          maxLines: DEFAULT_MAX_LINES,
-          maxBytes: DEFAULT_MAX_BYTES,
-        });
-
-        let text = truncation.content;
-        if (truncation.truncated) {
-          text += `\n\n[Output truncated: ${truncation.outputLines} of ${truncation.totalLines} lines.]`;
-        }
-
         return {
-          content: [{ type: "text", text }],
+          content: [{ type: "text", text: formatForAgent(JSON.stringify(tags, null, 2)) }],
           details: { count: tags.length },
         };
       },
@@ -253,6 +270,7 @@ export default function (pi: ExtensionAPI) {
         ),
       }),
       async execute(_id, params) {
+        await ensureClientReady();
         let notes;
         const page = params.page || 1;
 
@@ -275,18 +293,9 @@ export default function (pi: ExtensionAPI) {
         }
 
         const output = JSON.stringify(notes, null, 2);
-        const truncation = truncateHead(output, {
-          maxLines: DEFAULT_MAX_LINES,
-          maxBytes: DEFAULT_MAX_BYTES,
-        });
-
-        let text = truncation.content;
-        if (truncation.truncated) {
-          text += `\n\n[Output truncated: ${truncation.outputLines} of ${truncation.totalLines} lines. Query specific notebooks, tags, or use 'page' parameter to fetch more.]`;
-        }
-
+        const extraNote = "Query specific notebooks, tags, or use 'page' parameter to fetch more.";
         return {
-          content: [{ type: "text", text }],
+          content: [{ type: "text", text: formatForAgent(output, extraNote) }],
           details: { count: notes.notes.length, has_more: notes.has_more, page },
         };
       },
@@ -300,20 +309,10 @@ export default function (pi: ExtensionAPI) {
         note: Type.String({ description: "Note ID or title" }),
       }),
       async execute(_id, params) {
+        await ensureClientReady();
         const content = await client.readNote(params.note);
-
-        const truncation = truncateHead(content, {
-          maxLines: DEFAULT_MAX_LINES,
-          maxBytes: DEFAULT_MAX_BYTES,
-        });
-
-        let text = truncation.content;
-        if (truncation.truncated) {
-          text += `\n\n[Output truncated: ${truncation.outputLines} of ${truncation.totalLines} lines.]`;
-        }
-
         return {
-          content: [{ type: "text", text }],
+          content: [{ type: "text", text: formatForAgent(content) }],
           details: {},
         };
       },
@@ -329,6 +328,7 @@ export default function (pi: ExtensionAPI) {
         tag: Type.String({ description: "Tag ID or title to add" }),
       }),
       async execute(_id, params) {
+        await ensureClientReady();
         await client.addTagToNote(params.tag, params.note);
         return {
           content: [
@@ -353,6 +353,7 @@ export default function (pi: ExtensionAPI) {
         tag: Type.String({ description: "Tag ID or title to remove" }),
       }),
       async execute(_id, params) {
+        await ensureClientReady();
         await client.removeTagFromNote(params.tag, params.note);
         return {
           content: [
@@ -375,6 +376,7 @@ export default function (pi: ExtensionAPI) {
         note: Type.String({ description: "Note ID or title" }),
       }),
       async execute(_id, params) {
+        await ensureClientReady();
         const metadata = await client.getNoteMetadata(params.note);
         return {
           content: [{ type: "text", text: JSON.stringify(metadata, null, 2) }],
@@ -393,6 +395,7 @@ export default function (pi: ExtensionAPI) {
         notebook: Type.String({ description: "Destination Notebook ID or title" }),
       }),
       async execute(_id, params) {
+        await ensureClientReady();
         await client.moveNote(params.note, params.notebook);
         return {
           content: [
@@ -426,6 +429,7 @@ export default function (pi: ExtensionAPI) {
         ),
       }),
       async execute(_id, params) {
+        await ensureClientReady();
         const result = await client.createNote({
           title: params.title,
           type: params.type as "note" | "todo",
@@ -462,6 +466,7 @@ export default function (pi: ExtensionAPI) {
         ),
       }),
       async execute(_id, params) {
+        await ensureClientReady();
         await client.editNote(params.note, {
           title: params.title,
           body: params.body,
@@ -484,6 +489,7 @@ export default function (pi: ExtensionAPI) {
         completed: Type.Boolean({ description: "True to mark completed, false to uncomplete" }),
       }),
       async execute(_id, params) {
+        await ensureClientReady();
         await client.setTodoCompletion(params.note, params.completed);
         const status = params.completed ? "completed" : "uncompleted";
         return {

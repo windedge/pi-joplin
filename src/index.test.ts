@@ -426,6 +426,14 @@ describe("Extension", () => {
     const sessionStartHandler = mockPi.on.mock.calls.find(call => call[0] === "session_start")[1];
     await sessionStartHandler(null, { sessionManager: { getEntries: () => [] } });
 
+    // Lazy init: scope is applied on first tool use, not at session start.
+    expect(client.setScope).not.toHaveBeenCalled();
+    expect(client.init).not.toHaveBeenCalled();
+
+    const listNotebooksTool = mockPi.registerTool.mock.calls.find(call => call[0].name === "joplin_list_notebooks")[0];
+    await listNotebooksTool.execute("id", {});
+
+    expect(client.init).toHaveBeenCalled();
     expect(client.setScope).toHaveBeenCalledWith(expect.any(Set), expect.stringContaining("fail-closed"));
 
     // Tool descriptions should mention fail-closed after re-register

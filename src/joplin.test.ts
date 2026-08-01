@@ -36,7 +36,7 @@ describe("JoplinClient", () => {
       });
 
       await client.init();
-      expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining("/ping"));
+      expect(mockFetch.mock.calls[0][0]).toContain("/ping");
       expect(child_process.spawn).not.toHaveBeenCalled();
     });
 
@@ -262,6 +262,52 @@ describe("JoplinClient", () => {
         statusText: "Internal Server Error"
       });
       await expect(client.listNotebooks()).rejects.toThrow("Joplin API Error: 500 Internal Server Error");
+    });
+
+    it("times out requests that hang", async () => {
+      client.requestTimeoutMs = 50;
+      mockFetch.mockImplementationOnce((_url: string, opts: any) => {
+        return new Promise((_resolve, reject) => {
+          // Reject when aborted, mimicking fetch AbortError behavior
+          opts.signal?.addEventListener("abort", () => {
+            const err: any = new Error("The operation was aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+        });
+      });
+      await expect(client.listNotebooks()).rejects.toThrow("timed out after 50ms");
+    });
+
+    it("ping respects connect timeout", async () => {
+      const c = new JoplinClient();
+      c.connectTimeoutMs = 30;
+      mockFetch.mockImplementationOnce((_url: string, opts: any) => {
+        return new Promise((_resolve, reject) => {
+          opts.signal?.addEventListener("abort", () => {
+            const err: any = new Error("aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+        });
+      });
+      // ping swallows errors and returns false
+      await expect((c as any).ping(41184)).resolves.toBe(false);
+    });
+
+    it("startHeadlessServer times out and kills process", async () => {
+      const profiledClient = new JoplinClient("/tmp/t", 12345);
+      profiledClient.connectTimeoutMs = 30;
+      const mockChildProcess = new EventEmitter() as any;
+      mockChildProcess.stdout = new EventEmitter();
+      mockChildProcess.kill = jest.fn();
+      (child_process.spawn as jest.Mock).mockReturnValue(mockChildProcess);
+
+      const initPromise = profiledClient.init();
+      (fsPromises.readFile as jest.Mock).mockResolvedValue(JSON.stringify({ "api.token": "test" }));
+
+      await expect(initPromise).rejects.toThrow("did not start within 30ms");
+      expect(mockChildProcess.kill).toHaveBeenCalled();
     });
 
     it("throws if API called before init", async () => {

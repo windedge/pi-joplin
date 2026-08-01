@@ -11,6 +11,10 @@ export class JoplinClient {
   /** null = unrestricted; empty Set = fail-closed deny-all */
   private allowedNotebookIds: Set<string> | null = null;
   private scopeSummary: string = "unrestricted";
+  /** Per-request timeout (ms). */
+  public requestTimeoutMs = 8000;
+  /** Timeout for ping probes and headless server startup (ms). */
+  public connectTimeoutMs = 5000;
 
   constructor(private profilePath?: string, private forceHeadlessPort?: number) {
     if (forceHeadlessPort) {
@@ -117,8 +121,10 @@ export class JoplinClient {
   }
 
   private async ping(port: number): Promise<boolean> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.connectTimeoutMs);
     try {
-      const res = await fetch(`http://localhost:${port}/ping`);
+      const res = await fetch(`http://localhost:${port}/ping`, { signal: controller.signal });
       if (res.ok) {
         const text = await res.text();
         if (text.includes("JoplinClipperServer")) {
@@ -127,7 +133,9 @@ export class JoplinClient {
         }
       }
     } catch {
-      // Connection refused, etc.
+      // Connection refused, timeout, etc.
+    } finally {
+      clearTimeout(timer);
     }
     return false;
   }
@@ -145,10 +153,35 @@ export class JoplinClient {
         detached: false
       });
 
-      this.serverProcess.on("error", reject);
+      let settled = false;
+      const fail = (err: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(startupTimer);
+        reject(err);
+      };
+      const succeed = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(startupTimer);
+        resolve();
+      };
+
+      const startupTimer = setTimeout(() => {
+        fail(new Error(`Joplin headless server did not start within ${this.connectTimeoutMs}ms`));
+        // Best-effort cleanup: don't leave a half-started process behind.
+        try {
+          this.serverProcess?.kill("SIGTERM");
+        } catch {
+          // ignore
+        }
+        this.serverProcess = undefined;
+      }, this.connectTimeoutMs);
+
+      this.serverProcess.on("error", fail);
       this.serverProcess.on("close", (code) => {
         if (code !== 0 && code !== null) {
-          reject(new Error(`Joplin server exited with code ${code}`));
+          fail(new Error(`Joplin server exited with code ${code}`));
         }
       });
 
@@ -159,7 +192,7 @@ export class JoplinClient {
           const match = str.match(/Starting Clipper server on port (\d+)/);
           if (match) {
             this.port = parseInt(match[1], 10);
-            resolve();
+            succeed();
           }
         });
       }
@@ -191,14 +224,26 @@ export class JoplinClient {
       fetchOpts.headers = { ...fetchOpts.headers, "Content-Type": "application/json" };
     }
 
-    const res = await fetch(url.toString(), fetchOpts);
-    if (!res.ok) {
-      throw new Error(`Joplin API Error: ${res.status} ${res.statusText}`);
-    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
+    try {
+      fetchOpts.signal = controller.signal;
+      const res = await fetch(url.toString(), fetchOpts);
+      if (!res.ok) {
+        throw new Error(`Joplin API Error: ${res.status} ${res.statusText}`);
+      }
 
-    const text = await res.text();
-    if (!text) return {} as T;
-    return JSON.parse(text) as T;
+      const text = await res.text();
+      if (!text) return {} as T;
+      return JSON.parse(text) as T;
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        throw new Error(`Joplin request timed out after ${this.requestTimeoutMs}ms: ${endpoint}`, { cause: err });
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   // Fetch a single page of items (returns pagination state)
@@ -251,6 +296,32 @@ export class JoplinClient {
     return await this.fetchAll("/tags");
   }
 
+  /** Filter notes by type and attach display icons (shared by listNotes and listNotesByTag). */
+  private processNotes(
+    notes: any[],
+    type?: "all" | "notes" | "todos" | "completed_todos"
+  ): any[] {
+    // The REST API sometimes returns 0/1 instead of booleans
+    const isTodo = (n: any) => n.is_todo === 1 || n.is_todo === true;
+    const isCompleted = (n: any) => n.todo_completed > 0;
+
+    if (type === "notes") {
+      notes = notes.filter(n => !isTodo(n));
+    } else if (type === "todos") {
+      notes = notes.filter(n => isTodo(n) && !isCompleted(n));
+    } else if (type === "completed_todos") {
+      notes = notes.filter(n => isTodo(n) && isCompleted(n));
+    } else {
+      // "all" - default: exclude completed todos unless explicitly requested
+      notes = notes.filter(n => !(isTodo(n) && isCompleted(n)));
+    }
+
+    return notes.map(n => {
+      n.icon = (!isTodo(n)) ? "🗎" : (isCompleted(n) ? "🗹" : "☐");
+      return n;
+    });
+  }
+
   async listNotes(notebookIdOrName?: string, type?: "all" | "notes" | "todos" | "completed_todos", page: number = 1): Promise<{ notes: any[], has_more: boolean }> {
     let res;
     const fields = "id,title,is_todo,todo_completed,parent_id";
@@ -285,25 +356,7 @@ export class JoplinClient {
       notes = notes.filter(n => this.allowedNotebookIds!.has(n.parent_id));
     }
 
-    // The REST API sometimes returns 0/1 instead of booleans
-    const isTodo = (n: any) => n.is_todo === 1 || n.is_todo === true;
-    const isCompleted = (n: any) => n.todo_completed > 0;
-
-    if (type === "notes") {
-      notes = notes.filter(n => !isTodo(n));
-    } else if (type === "todos") {
-      notes = notes.filter(n => isTodo(n) && !isCompleted(n));
-    } else if (type === "completed_todos") {
-      notes = notes.filter(n => isTodo(n) && isCompleted(n));
-    } else {
-      // "all" - default: exclude completed todos unless explicitly requested
-      notes = notes.filter(n => !(isTodo(n) && isCompleted(n)));
-    }
-
-    notes = notes.map(n => {
-      n.icon = (!isTodo(n)) ? "🗎" : (isCompleted(n) ? "🗹" : "☐");
-      return n;
-    });
+    notes = this.processNotes(notes, type);
 
     return { notes, has_more: res.has_more };
   }
@@ -321,25 +374,7 @@ export class JoplinClient {
       notes = notes.filter(n => this.allowedNotebookIds!.has(n.parent_id));
     }
 
-    // The REST API sometimes returns 0/1 instead of booleans
-    const isTodo = (n: any) => n.is_todo === 1 || n.is_todo === true;
-    const isCompleted = (n: any) => n.todo_completed > 0;
-
-    if (type === "notes") {
-      notes = notes.filter(n => !isTodo(n));
-    } else if (type === "todos") {
-      notes = notes.filter(n => isTodo(n) && !isCompleted(n));
-    } else if (type === "completed_todos") {
-      notes = notes.filter(n => isTodo(n) && isCompleted(n));
-    } else {
-      // "all" - default: exclude completed todos unless explicitly requested
-      notes = notes.filter(n => !(isTodo(n) && isCompleted(n)));
-    }
-
-    notes = notes.map(n => {
-      n.icon = (!isTodo(n)) ? "🗎" : (isCompleted(n) ? "🗹" : "☐");
-      return n;
-    });
+    notes = this.processNotes(notes, type);
 
     return { notes, has_more: res.has_more };
   }
