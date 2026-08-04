@@ -1,9 +1,9 @@
 jest.mock("typebox", () => ({ Type: { Object: jest.fn(), String: jest.fn(), Optional: jest.fn(), Union: jest.fn(), Literal: jest.fn(), Boolean: jest.fn(), Number: jest.fn() } }), { virtual: true });
-jest.mock("@earendil-works/pi-coding-agent", () => ({
+jest.mock("./truncate", () => ({
   truncateHead: jest.fn().mockReturnValue({ content: "mock content", truncated: false }),
   DEFAULT_MAX_BYTES: 1000,
-  DEFAULT_MAX_LINES: 100
-}), { virtual: true });
+  DEFAULT_MAX_LINES: 100,
+}));
 
 jest.mock("fs/promises", () => ({
   readFile: jest.fn().mockRejectedValue(new Error("Not found")),
@@ -442,7 +442,7 @@ describe("Extension", () => {
   });
 
   it("handles truncated tool output branches", async () => {
-    const { truncateHead } = require("@earendil-works/pi-coding-agent");
+    const { truncateHead } = require("./truncate");
     truncateHead.mockReturnValue({
       content: "partial",
       truncated: true,

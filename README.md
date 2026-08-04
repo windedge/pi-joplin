@@ -32,8 +32,9 @@ pi -e /path/to/pi-joplin/dist/index.js
 ```
 
 ## Requirements
-- Joplin CLI must be installed or the extension will use its internal `joplin` NPM dependency.
-- The `Web Clipper` must be enabled inside Joplin Desktop (or you must supply a custom API Token).
+- **Joplin Desktop should already be running** with the **Web Clipper** service enabled (Tools / Options / Web Clipper). The extension talks to that local API; do not expect the agent to start a new Joplin instance for you.
+- If the API token cannot be auto-discovered from the Joplin profile, supply it via `/joplin-config`.
+- Joplin CLI is optional; the package may use its internal `joplin` NPM dependency only as a fallback implementation detail.
 
 ## Configuration
 

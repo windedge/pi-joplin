@@ -4,7 +4,8 @@
   "description": "A pi extension providing scoped interactive access to Joplin notes",
   "main": "dist/index.js",
   "pi": {
-    "extensions": ["dist/index.js"]
+    "extensions": ["dist/index.js"],
+    "skills": ["./skills/joplin/SKILL.md"]
   },
   "scripts": {
     "build": "tsc",
@@ -15,19 +16,27 @@
   },
   "keywords": [
     "pi-package",
+    "pi-extension",
+    "pi-skill",
     "joplin",
     "notes"
   ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@earendil-works/pi-ai": "^0.78.0",
-    "@earendil-works/pi-coding-agent": "^0.78.0",
     "joplin": "^3.6.2",
-    "joplin-api": "^1.0.0",
     "typebox": "^1.1.39"
   },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.78.0",
     "@eslint/js": "^10.0.1",
     "@types/eslint__js": "^8.42.3",
     "@types/jest": "^30.0.0",
